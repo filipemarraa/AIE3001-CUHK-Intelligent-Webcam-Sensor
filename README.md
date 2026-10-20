@@ -6,6 +6,16 @@ Everything runs on the user's device. No video frame leaves the browser, nothing
 
 Course project for **AIE 3001 · AI and Human-Computer Interaction**, The Chinese University of Hong Kong, Shenzhen (Term 1, 2026-27).
 
+## Team
+
+| Member | Owns |
+|---|---|
+| Tiago de Jesus Chehab | Signal processing and system architecture |
+| Vinicius Borges de Alencar | Interface and validation study |
+| Filipe Jacobson Marra | Privacy and consent, exhibition safety, user testing |
+
+Every area has one owner and one reviewer from the other two members.
+
 > **Not a medical device.** The values are wellness estimates for a breathing exercise. They are not a diagnosis and must not be used for clinical decisions.
 
 ## Status
