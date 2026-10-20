@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.wasm
+*.tsbuildinfo
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/
+
+# Participant sessions and reference-device logs are health data: they never go to the repository
+data/
+graphify-out/
