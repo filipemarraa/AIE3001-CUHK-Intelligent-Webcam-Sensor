@@ -24,7 +24,7 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 		{"dark", darkSkin, 0.003},
 	}
 	for _, tone := range tones {
-		for _, bpm := range []float64{50, 72, 110} {
+		for _, bpm := range []float64{45, 50, 72, 110, 175} {
 			t.Run(fmt.Sprintf("%s/%v bpm", tone.name, bpm), func(t *testing.T) {
 				ts, r, g, b := synth(synthConfig{
 					bpm: bpm, durationS: 15, fps: 30, jitterMs: 8,
@@ -39,6 +39,24 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestEstimateHeartRateDoesNotReportRateJustAboveBand(t *testing.T) {
+	ts, r, g, b := synth(synthConfig{
+		bpm: 183, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, noise: 0.1, seed: 3,
+	})
+	hr, err := EstimateHeartRate(ts, r, g, b, DefaultConfig())
+	if !errors.Is(err, dsp.ErrNoPeakInBand) {
+		t.Fatalf("got %.1f bpm, err = %v, want dsp.ErrNoPeakInBand", hr.BPM, err)
+	}
+}
+
+func TestEstimateHeartRateRejectsNonFiniteSample(t *testing.T) {
+	ts, r, g, b := synth(synthConfig{bpm: 72, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, seed: 1})
+	g[150] = math.NaN()
+	if _, err := EstimateHeartRate(ts, r, g, b, DefaultConfig()); !errors.Is(err, dsp.ErrNotFinite) {
+		t.Fatalf("err = %v, want dsp.ErrNotFinite", err)
 	}
 }
 

@@ -10,15 +10,31 @@ var (
 	ErrGap            = errors.New("dsp: gap between samples above limit")
 	ErrNotIncreasing  = errors.New("dsp: timestamps must be strictly increasing")
 	ErrLengthMismatch = errors.New("dsp: channel length differs from timestamps")
+	ErrNotFinite      = errors.New("dsp: input contains NaN or infinity")
 )
+
+func allFinite(x []float64) bool {
+	for _, v := range x {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
+}
 
 func Resample(tsMs []float64, channels [][]float64, fs, maxGapMs float64) ([][]float64, error) {
 	if len(tsMs) < 2 {
 		return nil, ErrTooShort
 	}
+	if !allFinite(tsMs) {
+		return nil, ErrNotFinite
+	}
 	for _, ch := range channels {
 		if len(ch) != len(tsMs) {
 			return nil, ErrLengthMismatch
+		}
+		if !allFinite(ch) {
+			return nil, ErrNotFinite
 		}
 	}
 	for i := 1; i < len(tsMs); i++ {

@@ -48,7 +48,7 @@ func TestFFTPanicsOnNonPowerOfTwo(t *testing.T) {
 
 func TestDominantFrequencyFindsTone(t *testing.T) {
 	const fs = 30.0
-	for _, hz := range []float64{0.83, 1.2, 1.87, 2.5} {
+	for _, hz := range []float64{0.75, 0.83, 1.2, 1.87, 2.5, 2.95} {
 		x := sine(450, fs, hz, 1)
 		p, err := DominantFrequency(x, fs, 0.7, 3.0)
 		if err != nil {
@@ -98,6 +98,26 @@ func TestSNRDropsWithNoise(t *testing.T) {
 	}
 	if pn.SNRdB >= pc.SNRdB-5 {
 		t.Errorf("noisy SNR = %.1f dB, want well below clean %.1f dB", pn.SNRdB, pc.SNRdB)
+	}
+}
+
+func TestDominantFrequencyRejectsPeakBeyondBandEdge(t *testing.T) {
+	const fs = 30.0
+	for _, hz := range []float64{0.6, 3.05} {
+		_, err := DominantFrequency(sine(450, fs, hz, 1), fs, 0.7, 3.0)
+		if !errors.Is(err, ErrNoPeakInBand) {
+			t.Errorf("hz=%v: err = %v, want ErrNoPeakInBand", hz, err)
+		}
+	}
+}
+
+func TestDominantFrequencyRejectsNonFiniteInput(t *testing.T) {
+	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		x := sine(450, 30, 1.2, 1)
+		x[200] = bad
+		if _, err := DominantFrequency(x, 30, 0.7, 3.0); !errors.Is(err, ErrNotFinite) {
+			t.Errorf("value %v: err = %v, want ErrNotFinite", bad, err)
+		}
 	}
 }
 

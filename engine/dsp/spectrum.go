@@ -7,7 +7,10 @@ import (
 	"math/cmplx"
 )
 
-var ErrFlat = errors.New("dsp: no power in band")
+var (
+	ErrFlat         = errors.New("dsp: no power in band")
+	ErrNoPeakInBand = errors.New("dsp: spectral peak is not inside the band")
+)
 
 type Peak struct {
 	FreqHz float64
@@ -51,6 +54,9 @@ func DominantFrequency(x []float64, fs, lowHz, highHz float64) (Peak, error) {
 	if len(x) < int(math.Ceil(2*fs/lowHz)) {
 		return Peak{}, ErrTooShort
 	}
+	if !allFinite(x) {
+		return Peak{}, ErrNotFinite
+	}
 
 	var mean float64
 	for _, v := range x {
@@ -85,13 +91,20 @@ func DominantFrequency(x []float64, fs, lowHz, highHz float64) (Peak, error) {
 	if total <= 1e-20 {
 		return Peak{}, ErrFlat
 	}
+	// A maximum on the band edge that keeps rising outside belongs to a frequency outside the band.
+	if best == 0 || best >= len(power)-1 || power[best-1] >= power[best] || power[best+1] >= power[best] {
+		return Peak{}, ErrNoPeakInBand
+	}
 
 	freq := float64(best) * binHz
-	if best > 0 && best < len(power)-1 && power[best-1] > 0 && power[best+1] > 0 {
+	if power[best-1] > 0 && power[best+1] > 0 {
 		l, c, r := math.Log(power[best-1]), math.Log(power[best]), math.Log(power[best+1])
 		if den := l - 2*c + r; den != 0 {
 			freq += 0.5 * (l - r) / den * binHz
 		}
+	}
+	if freq < lowHz || freq > highHz {
+		return Peak{}, ErrNoPeakInBand
 	}
 
 	// The Hann main lobe is 2/T wide on each side; a narrower signal window would count the peak's own energy as noise.

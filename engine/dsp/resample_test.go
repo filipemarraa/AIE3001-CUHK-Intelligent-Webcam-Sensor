@@ -60,6 +60,10 @@ func TestResampleErrors(t *testing.T) {
 		{"repeated timestamp", []float64{0, 33, 33, 66}, [][]float64{{1, 2, 3, 4}}, ErrNotIncreasing},
 		{"backwards timestamp", []float64{0, 33, 20, 66}, [][]float64{{1, 2, 3, 4}}, ErrNotIncreasing},
 		{"length mismatch", []float64{0, 33, 66}, [][]float64{{1, 2}}, ErrLengthMismatch},
+		{"NaN timestamp", []float64{0, math.NaN(), 66, 99}, [][]float64{{1, 2, 3, 4}}, ErrNotFinite},
+		{"infinite timestamp", []float64{0, 33, 66, math.Inf(1)}, [][]float64{{1, 2, 3, 4}}, ErrNotFinite},
+		{"NaN channel value", []float64{0, 33, 66, 99}, [][]float64{{1, math.NaN(), 3, 4}}, ErrNotFinite},
+		{"infinite channel value", []float64{0, 33, 66, 99}, [][]float64{{1, 2, math.Inf(-1), 4}}, ErrNotFinite},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
