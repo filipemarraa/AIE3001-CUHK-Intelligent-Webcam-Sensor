@@ -120,6 +120,42 @@ describe('createMockVitals', () => {
     expect(estimates.length).toBe(3);
   });
 
+  it.each(['starting', 'calibrating'] as const)('stays stopped when stop is called on %s', async (at) => {
+    const vitals = createMockVitals({ seed: 1 });
+    const states: VitalsState[] = [];
+    const estimates: Estimate[] = [];
+    vitals.on('state', (s) => {
+      states.push(s);
+      if (s === at) vitals.stop();
+    });
+    vitals.on('estimate', (e) => estimates.push(e));
+
+    await vitals.start({ video });
+    vi.advanceTimersByTime(5_000);
+
+    expect(estimates).toEqual([]);
+    expect(states.at(-1)).toBe('stopped');
+    expect(states.filter((s) => s === 'stopped')).toHaveLength(1);
+  });
+
+  it('does not announce measuring after a stop from the last warm-up estimate', async () => {
+    const vitals = createMockVitals({ seed: 1, warmupS: 3 });
+    const states: VitalsState[] = [];
+    vitals.on('state', (s) => states.push(s));
+    vitals.on('estimate', (e) => {
+      if (e.tMs === 3_000) vitals.stop();
+    });
+
+    await vitals.start({ video });
+    vi.advanceTimersByTime(5_000);
+
+    expect(states).toEqual(['starting', 'calibrating', 'stopped']);
+  });
+
+  it.each([0, 0.5, -1, Number.NaN])('rejects warmupS = %s', (warmupS) => {
+    expect(() => createMockVitals({ warmupS })).toThrow(RangeError);
+  });
+
   it('can simulate a start failure', async () => {
     const vitals = createMockVitals({ failWith: 'camera_denied' });
     const errors: VitalsError[] = [];

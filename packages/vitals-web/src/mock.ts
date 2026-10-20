@@ -54,8 +54,12 @@ function confidenceFor(quality: number): Confidence {
 export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
   const method: Method = options.method ?? 'pos';
   const warmupS = options.warmupS ?? 10;
+  if (!Number.isInteger(warmupS) || warmupS < 1) {
+    throw new RangeError('warmupS must be a positive integer number of seconds');
+  }
   const handlers: HandlerSets = { estimate: new Set(), state: new Set(), error: new Set() };
   let timer: ReturnType<typeof setInterval> | null = null;
+  let running = false;
   let history: Estimate[] = [];
   let elapsedS = 0;
   let started = false;
@@ -112,14 +116,17 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
     const estimate = elapsedS <= warmupS ? warmupEstimate(elapsedS) : measuringEstimate(elapsedS);
     history.push(estimate);
     emit('estimate', estimate);
-    if (elapsedS === warmupS) emit('state', 'measuring');
+    if (running && elapsedS === warmupS) emit('state', 'measuring');
   }
 
   return {
     start(): Promise<void> {
-      if (timer !== null) return Promise.resolve();
+      if (running) return Promise.resolve();
+      running = true;
       emit('state', 'starting');
+      if (!running) return Promise.resolve();
       if (options.failWith) {
+        running = false;
         const error: VitalsError = { code: options.failWith };
         emit('error', error);
         emit('state', 'stopped');
@@ -130,13 +137,14 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
       elapsedS = 0;
       random = mulberry32(options.seed ?? 1);
       emit('state', 'calibrating');
-      timer = setInterval(tick, 1000);
+      if (running) timer = setInterval(tick, 1000);
       return Promise.resolve();
     },
 
     stop(): void {
-      if (timer === null) return;
-      clearInterval(timer);
+      if (!running) return;
+      running = false;
+      if (timer !== null) clearInterval(timer);
       timer = null;
       emit('state', 'stopped');
     },
