@@ -60,6 +60,7 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
   const handlers: HandlerSets = { estimate: new Set(), state: new Set(), error: new Set() };
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
+  let session = 0;
   let history: Estimate[] = [];
   let elapsedS = 0;
   let started = false;
@@ -112,19 +113,21 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
   }
 
   function tick(): void {
+    const id = session;
     elapsedS += 1;
     const estimate = elapsedS <= warmupS ? warmupEstimate(elapsedS) : measuringEstimate(elapsedS);
     history.push(estimate);
     emit('estimate', estimate);
-    if (running && elapsedS === warmupS) emit('state', 'measuring');
+    if (id === session && elapsedS === warmupS) emit('state', 'measuring');
   }
 
   return {
     start(): Promise<void> {
       if (running) return Promise.resolve();
       running = true;
+      const id = ++session;
       emit('state', 'starting');
-      if (!running) return Promise.resolve();
+      if (id !== session) return Promise.resolve();
       if (options.failWith) {
         running = false;
         const error: VitalsError = { code: options.failWith };
@@ -137,13 +140,14 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
       elapsedS = 0;
       random = mulberry32(options.seed ?? 1);
       emit('state', 'calibrating');
-      if (running) timer = setInterval(tick, 1000);
+      if (id === session) timer = setInterval(tick, 1000);
       return Promise.resolve();
     },
 
     stop(): void {
       if (!running) return;
       running = false;
+      session += 1;
       if (timer !== null) clearInterval(timer);
       timer = null;
       emit('state', 'stopped');

@@ -138,6 +138,31 @@ describe('createMockVitals', () => {
     expect(states.filter((s) => s === 'stopped')).toHaveLength(1);
   });
 
+  it('keeps a single timer when restarted from the stopped handler during start-up', async () => {
+    const vitals = createMockVitals({ seed: 1 });
+    const estimates: Estimate[] = [];
+    let stopped = false;
+    let restarted = false;
+    vitals.on('state', (s) => {
+      if (s === 'calibrating' && !stopped) {
+        stopped = true;
+        vitals.stop();
+      } else if (s === 'stopped' && !restarted) {
+        restarted = true;
+        void vitals.start({ video });
+      }
+    });
+    vitals.on('estimate', (e) => estimates.push(e));
+
+    await vitals.start({ video });
+    vi.advanceTimersByTime(3_000);
+    expect(estimates.map((e) => e.tMs)).toEqual([1_000, 2_000, 3_000]);
+
+    vitals.stop();
+    vi.advanceTimersByTime(3_000);
+    expect(estimates).toHaveLength(3);
+  });
+
   it('does not announce measuring after a stop from the last warm-up estimate', async () => {
     const vitals = createMockVitals({ seed: 1, warmupS: 3 });
     const states: VitalsState[] = [];
