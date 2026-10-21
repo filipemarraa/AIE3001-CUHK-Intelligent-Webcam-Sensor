@@ -26,20 +26,27 @@ const sleep = (ms: number): Promise<void> =>
 export async function lockExposureWhenStable(
   track: MediaStreamTrack,
   wait: (ms: number) => Promise<void> = sleep,
+  now: () => number = () => performance.now(),
 ): Promise<boolean> {
   // Not every browser implements getCapabilities on camera tracks.
   const capable = track as Partial<Pick<MediaStreamTrack, 'getCapabilities'>>;
   const caps = (capable.getCapabilities?.() ?? {}) as ExposureCapabilities;
   if (caps.exposureMode?.includes('manual') !== true) return false;
+  // Timers can run late, so stability and the deadline are measured on the clock, not by counting waits.
+  const start = now();
   let last: number | undefined;
-  let stableMs = 0;
-  for (let waited = 0; stableMs < EXPOSURE_STABLE_MS; waited += EXPOSURE_POLL_MS) {
-    if (waited >= EXPOSURE_TIMEOUT_MS) return false;
+  let since = start;
+  for (;;) {
     const exposure = (track.getSettings() as ExposureSettings).exposureTime;
     if (exposure === undefined) return false;
-    stableMs = exposure === last ? stableMs + EXPOSURE_POLL_MS : 0;
-    last = exposure;
-    if (stableMs < EXPOSURE_STABLE_MS) await wait(EXPOSURE_POLL_MS);
+    const t = now();
+    if (exposure !== last) {
+      last = exposure;
+      since = t;
+    }
+    if (t - since >= EXPOSURE_STABLE_MS) break;
+    if (t - start >= EXPOSURE_TIMEOUT_MS) return false;
+    await wait(EXPOSURE_POLL_MS);
   }
   const settings = track.getSettings() as ExposureSettings;
   const lock: Record<string, unknown> = { exposureMode: 'manual', exposureTime: settings.exposureTime };
@@ -107,18 +114,24 @@ interface FrameTiming {
 export function createFrameClock(now: () => number = () => performance.now()): (m: FrameTiming) => number {
   let base: number | null = null;
   let lastMedia = Number.NEGATIVE_INFINITY;
+  let lastOut = Number.NEGATIVE_INFINITY;
+  // Switching between time sources must never step back: the engine drops samples that are not newer.
+  const forward = (t: number): number => {
+    lastOut = Math.max(t, lastOut + 0.001);
+    return lastOut;
+  };
   return (m) => {
-    if (m.captureTime !== undefined && Number.isFinite(m.captureTime)) return m.captureTime;
+    if (m.captureTime !== undefined && Number.isFinite(m.captureTime)) return forward(m.captureTime);
     const media = m.mediaTime;
     const t = now();
     if (media === undefined || !Number.isFinite(media) || media <= lastMedia) {
       base = null;
       lastMedia = media ?? Number.NEGATIVE_INFINITY;
-      return t;
+      return forward(t);
     }
     lastMedia = media;
     if (base === null || Math.abs(base + media * 1000 - t) > 1000) base = t - media * 1000;
-    return base + media * 1000;
+    return forward(base + media * 1000);
   };
 }
 

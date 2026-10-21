@@ -45,9 +45,17 @@ function hasForbidden(v: unknown, seen: WeakSet<object>): boolean {
   return Object.values(v).some((child) => hasForbidden(child, seen));
 }
 
+function isRowsOfNumbers(rows: unknown): boolean {
+  return (
+    Array.isArray(rows) &&
+    rows.every((row) => Array.isArray(row) && row.every((v) => typeof v === 'number' && Number.isFinite(v)))
+  );
+}
+
 export function isFromWorker(x: unknown): x is FromWorker {
   if (typeof x !== 'object' || x === null) return false;
   const type = (x as { type?: unknown }).type;
   if (typeof type !== 'string' || !FROM_WORKER_TYPES.has(type)) return false;
+  if (type === 'samples' && !isRowsOfNumbers((x as { rows?: unknown }).rows)) return false;
   return !hasForbidden(x, new WeakSet());
 }
