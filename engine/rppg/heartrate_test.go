@@ -102,10 +102,10 @@ func TestEstimateHeartRateErrors(t *testing.T) {
 
 	ts, r, g, b = synth(synthConfig{bpm: 72, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, seed: 1})
 	for i := 200; i < len(ts); i++ {
-		ts[i] += 400
+		ts[i] += 700
 	}
 	if _, err := EstimateHeartRate(ts, r, g, b, cfg); !errors.Is(err, dsp.ErrGap) {
-		t.Errorf("400 ms gap: err = %v, want dsp.ErrGap", err)
+		t.Errorf("700 ms gap: err = %v, want dsp.ErrGap", err)
 	}
 
 	if _, err := EstimateHeartRate(nil, nil, nil, nil, cfg); !errors.Is(err, ErrTooShort) {

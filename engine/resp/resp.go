@@ -51,7 +51,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		SampleRateHz:   10,
-		MaxGapMs:       250,
+		MaxGapMs:       500,
 		LowHz:          0.08,
 		HighHz:         0.5,
 		MinDurationS:   25,

@@ -201,6 +201,21 @@ func TestGapInvalidatesThenRecovers(t *testing.T) {
 	assertHeartRate(t, s.Estimate(now), 72)
 }
 
+func TestShortStallIsBridged(t *testing.T) {
+	var xs []Sample
+	for _, x := range synthSamples(72, 6, 40, 30) {
+		if x.TimeMs < 30000 || x.TimeMs >= 30400 {
+			xs = append(xs, x)
+		}
+	}
+	s := New(DefaultConfig())
+	e := s.Estimate(pushAll(s, until(xs, 32000)))
+	assertHeartRate(t, e, 72)
+	if math.Abs(e.RRRpm-6) > 1 {
+		t.Fatalf("RR %.2f after a 400 ms stall, want 6 ± 1", e.RRRpm)
+	}
+}
+
 func TestStaleSamplesInvalidate(t *testing.T) {
 	s := New(DefaultConfig())
 	now := pushAll(s, synthSamples(72, 6, 25, 30))
