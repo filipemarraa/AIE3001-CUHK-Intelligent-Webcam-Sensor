@@ -102,12 +102,11 @@ interface SetupOptions {
 
 function setup(opts: SetupOptions = {}) {
   const clock = { t: 0 };
-  const face: FaceDetector = {
-    detect: vi.fn(() => {
-      clock.t += 4;
-      return opts.faces ? opts.faces() : [makeFace()];
-    }),
-  };
+  const detectFace = vi.fn(() => {
+    clock.t += 4;
+    return opts.faces ? opts.faces() : [makeFace()];
+  });
+  const face: FaceDetector = { detect: detectFace };
   const detectPose = vi.fn(() => (opts.pose ? opts.pose() : POSE));
   const pose: PoseDetector = { detect: detectPose };
   const pushed: Float64Array[] = [];
@@ -142,7 +141,7 @@ function setup(opts: SetupOptions = {}) {
   const frame = (tMs: number): void => {
     sensor.onFrame(source, tMs, WIDTH, HEIGHT, pixels);
   };
-  return { clock, face, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
+  return { clock, detectFace, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
 }
 
 afterEach(() => {
@@ -153,7 +152,7 @@ describe('createSensor', () => {
   it('with landmarkEvery 3 finds landmarks every third frame and reads the colour on every frame', () => {
     const s = setup({ landmarkEvery: 3 });
     for (let i = 0; i < 7; i++) s.frame(i * 33);
-    expect(s.face.detect).toHaveBeenCalledTimes(3);
+    expect(s.detectFace).toHaveBeenCalledTimes(3);
     expect(s.pushed.every((x) => x[SAMPLE.face] === 1 && (x[SAMPLE.g] ?? 0) > 0)).toBe(true);
   });
 
@@ -174,7 +173,7 @@ describe('createSensor', () => {
     const s = setup({ landmarkEvery: 10 });
     s.frame(0);
     s.frame(300);
-    expect(s.face.detect).toHaveBeenCalledTimes(2);
+    expect(s.detectFace).toHaveBeenCalledTimes(2);
   });
 
   it('stops reusing a face that the next landmark frame no longer finds', () => {

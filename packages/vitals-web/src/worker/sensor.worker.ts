@@ -100,8 +100,7 @@ export function createSensor(deps: SensorDeps): Sensor {
 
   // Returns the landmarks for this frame and the per-frame motion; between detections both are carried over.
   function locate(img: VisionImage, tMs: number): { faces: Point[][]; motion: number } {
-    const due =
-      every === 1 || landmarks === null || frames % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
+    const due = every === 1 || landmarks === null || frames % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
     if (!due && landmarks !== null) return { faces: [landmarks.face], motion: landmarks.motion };
     const faces = deps.face.detect(img, tMs);
     const face = faces[0];
