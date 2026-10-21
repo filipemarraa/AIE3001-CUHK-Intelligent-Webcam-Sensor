@@ -21,7 +21,7 @@
 - Warm-up 10 s; first valid `Estimate` within 15 s of consent.
 - WASM size under 1.5 MB with brotli; mean worker cost per frame under 25 ms; JS→Go round trip under 2 ms.
 - Real module reports `method: 'pos'` always.
-- Test first for every function (`docs/ai-use.md`). Commit messages follow the repo style: `<Area> - <what>` in Portuguese, ending with the `Co-Authored-By` line.
+- Test first for every function (`docs/ai-use.md`). Commit messages follow the repo style: `<Area> - <what>` in Portuguese, with no co-author trailer.
 - Lockfile committed; CI uses `npm ci`.
 
 ## Review Focus
