@@ -158,6 +158,27 @@ func TestMotionIsMeasuredPerSecond(t *testing.T) {
 	}
 }
 
+func TestMotionBurstOnlyCostsTheBurstAndTheWarmup(t *testing.T) {
+	xs := synthSamples(72, 6, 50, 30)
+	for i := range xs {
+		if xs[i].TimeMs >= 30000 && xs[i].TimeMs < 33000 {
+			xs[i].Motion = 0.2
+		}
+	}
+	s := New(DefaultConfig())
+	pushed := len(until(xs, 32000))
+	pushAll(s, xs[:pushed])
+	if e := s.Estimate(32000); e.Reason != quality.ReasonMotion {
+		t.Fatalf("during the burst: reason %v, want too_much_motion", e.Reason)
+	}
+	next := len(until(xs, 36000))
+	pushAll(s, xs[pushed:next])
+	assertInvalid(t, s.Estimate(36000), quality.ReasonWarmingUp)
+	pushed, next = next, len(until(xs, 44000))
+	pushAll(s, xs[pushed:next])
+	assertHeartRate(t, s.Estimate(44000), 72)
+}
+
 func TestNoFaceInvalidates(t *testing.T) {
 	xs := synthSamples(72, 6, 25, 30)
 	for i := range xs {
