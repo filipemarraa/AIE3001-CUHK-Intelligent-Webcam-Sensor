@@ -49,6 +49,33 @@ export async function openCamera(video: HTMLVideoElement, media?: MediaDevices):
   return stream;
 }
 
+interface FrameTiming {
+  captureTime?: number;
+  mediaTime?: number;
+  presentedFrames?: number;
+}
+
+// The callback can run late, so its own time would jitter the samples. captureTime is the camera's clock; failing
+// that, mediaTime (the frame's position in the stream) on a base fixed once per session; the callback time is the
+// last resort.
+export function createFrameClock(now: () => number = () => performance.now()): (m: FrameTiming) => number {
+  let base: number | null = null;
+  let lastMedia = Number.NEGATIVE_INFINITY;
+  return (m) => {
+    if (m.captureTime !== undefined && Number.isFinite(m.captureTime)) return m.captureTime;
+    const media = m.mediaTime;
+    const t = now();
+    if (media === undefined || !Number.isFinite(media) || media <= lastMedia) {
+      base = null;
+      lastMedia = media ?? Number.NEGATIVE_INFINITY;
+      return t;
+    }
+    lastMedia = media;
+    if (base === null || Math.abs(base + media * 1000 - t) > 1000) base = t - media * 1000;
+    return base + media * 1000;
+  };
+}
+
 export function startFrameLoop(
   video: HTMLVideoElement,
   send: (frame: VideoFrame, tMs: number) => void,
@@ -56,9 +83,17 @@ export function startFrameLoop(
   onDrop: () => void,
 ): () => void {
   let handle: number | null = null;
+  const clock = createFrameClock();
+  let lastPresented: number | null = null;
 
   const onFrame = (_now: DOMHighResTimeStamp, metadata: VideoFrameCallbackMetadata): void => {
     handle = video.requestVideoFrameCallback(onFrame);
+    const presented = (metadata as FrameTiming).presentedFrames;
+    if (presented !== undefined && lastPresented !== null) {
+      for (let missed = presented - lastPresented - 1; missed > 0; missed--) onDrop();
+    }
+    if (presented !== undefined) lastPresented = presented;
+    const tMs = clock(metadata);
     let frame: VideoFrame;
     try {
       frame = new VideoFrame(video);
@@ -72,7 +107,7 @@ export function startFrameLoop(
       return;
     }
     try {
-      send(frame, metadata.captureTime ?? performance.now());
+      send(frame, tMs);
     } catch {
       frame.close();
       onDrop();

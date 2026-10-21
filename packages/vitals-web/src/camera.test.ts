@@ -89,6 +89,46 @@ describe('startFrameLoop', () => {
     expect(send).toHaveBeenCalledWith(FakeVideoFrame.created[0], 99);
   });
 
+  it('places frames on a fixed session clock from mediaTime when there is no capture time', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const video = new FakeVideo();
+    const send = vi.fn();
+    startFrameLoop(video.asElement(), send, () => false, vi.fn());
+
+    video.present({ mediaTime: 0.5 });
+    now.mockReturnValue(1100);
+    video.present({ mediaTime: 0.533 });
+    now.mockReturnValue(1500);
+    video.present({ mediaTime: 0.567 });
+
+    expect(send.mock.calls.map(([, t]) => t as number)).toEqual([1000, 1033, 1067]);
+  });
+
+  it('falls back to performance.now() while mediaTime does not advance', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(500);
+    const video = new FakeVideo();
+    const send = vi.fn();
+    startFrameLoop(video.asElement(), send, () => false, vi.fn());
+
+    video.present({ mediaTime: 0 });
+    now.mockReturnValue(533);
+    video.present({ mediaTime: 0 });
+
+    expect(send.mock.calls.map(([, t]) => t as number)).toEqual([500, 533]);
+  });
+
+  it('counts frames the page never saw as dropped', () => {
+    const video = new FakeVideo();
+    const onDrop = vi.fn();
+    startFrameLoop(video.asElement(), vi.fn(), () => false, onDrop);
+
+    video.present({ captureTime: 1000, presentedFrames: 10 });
+    video.present({ captureTime: 1033, presentedFrames: 11 });
+    video.present({ captureTime: 1133, presentedFrames: 14 });
+
+    expect(onDrop).toHaveBeenCalledTimes(2);
+  });
+
   it('closes and drops frames while the worker is busy', () => {
     const video = new FakeVideo();
     const send = vi.fn();
