@@ -1,3 +1,4 @@
+import { round, summarize } from './summary.js';
 import type {
   BreathPhase,
   Confidence,
@@ -34,15 +35,6 @@ function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function round(x: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return Math.round(x * f) / f;
-}
-
-function average(xs: number[]): number | null {
-  return xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
 function confidenceFor(quality: number): Confidence {
@@ -123,6 +115,7 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
     const estimate = elapsedS <= warmupS ? warmupEstimate(elapsedS) : measuringEstimate(elapsedS);
     history.push(estimate);
     emit('estimate', estimate);
+    if (id === session) emit('diagnostics', { frameCostMs: 0, droppedFrames: 0, pulse: [] });
     if (id === session && elapsedS === warmupS) emit('state', 'measuring');
   }
 
@@ -168,19 +161,7 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
     },
 
     summary(): ExerciseSummary | null {
-      if (!started) return null;
-      const valid = history.filter((e) => e.hrBpm !== null);
-      const measured = history.filter((e) => e.reason !== 'warming_up');
-      const rrMean = average(valid.flatMap((e) => (e.rrRpm === null ? [] : [e.rrRpm])));
-      const qualityMean = average(measured.map((e) => e.quality));
-      return {
-        hrStart: valid[0]?.hrBpm ?? null,
-        hrEnd: valid.at(-1)?.hrBpm ?? null,
-        rrMean: rrMean === null ? null : round(rrMean, 1),
-        qualityMean: qualityMean === null ? null : round(qualityMean, 2),
-        durationS: elapsedS,
-        method,
-      };
+      return started ? summarize(history, elapsedS, method) : null;
     },
   };
 }

@@ -43,6 +43,22 @@ describe('createMockVitals', () => {
     }
   });
 
+  it('emits empty diagnostics once per second alongside each estimate', async () => {
+    const vitals = createMockVitals({ seed: 1 });
+    const events: string[] = [];
+    vitals.on('estimate', () => events.push('estimate'));
+    vitals.on('diagnostics', (d) => {
+      events.push('diagnostics');
+      expect(d).toEqual({ frameCostMs: 0, droppedFrames: 0, pulse: [] });
+    });
+    await vitals.start({ video });
+    vi.advanceTimersByTime(2_000);
+    vitals.stop();
+    vi.advanceTimersByTime(2_000);
+
+    expect(events).toEqual(['estimate', 'diagnostics', 'estimate', 'diagnostics']);
+  });
+
   it('only reports values with a confidence and only nulls with a reason', async () => {
     const { vitals, estimates } = record();
     await vitals.start({ video });
