@@ -54,6 +54,40 @@ Blood pressure, SpO2, heart rate variability as a number, and any inference of e
 
 `packages/vitals-web` has no framework dependency. The demo app consumes it, and so can any other web app. `createMockVitals` implements the same interface with synthetic data, so interface work does not wait for the camera pipeline.
 
+## 11. One sensor worker for vision and engine
+
+Face and pose landmarks (MediaPipe) and the Go/WebAssembly engine run in a single `sensor.worker`, as separate modules in code. The main thread transfers one `VideoFrame` at a time to the worker, which closes it after use; frames that arrive while the worker is busy are closed and counted as dropped, so no queue builds up. Only numbers come back: one `Estimate` per second and the diagnostics.
+
+Why: with two workers, the numeric sample would cross a second boundary on every frame and the `VideoFrame` could not stay in one place. One worker keeps the privacy boundary simple (frames never leave it, and a test checks that every message posted from it is a type from `protocol.ts` without frames or buffers) and removes a hop per frame. This replaces the two-worker diagram of the first README.
+
+Revisit if the mean cost per frame on the exhibition laptop stays above 25 ms and the cheaper options in `docs/exhibition-checklist.md` (pose every third frame, smaller detection draw, feeding the `VideoFrame` to MediaPipe directly) are not enough; splitting vision and engine would then be the next step.
+
+## 12. Stateful engine session with a 30 s buffer
+
+`engine/session` keeps a preallocated ring buffer of 30 s of samples. `Push` copies a sample in (no allocation per frame) and `Estimate(nowMs)` runs once per second over the buffer, combining heart rate (15 s window), breathing and confidence. The engine is stateful on purpose: the browser calls `push` per frame and `estimate` per second, with no JSON on the hot path.
+
+The breathing band is 0.08 to 0.5 Hz instead of 0.1 to 0.5 Hz. The guided exercise runs at 6 breaths per minute, which is 0.1 Hz, so a 0.1 Hz band edge would put the target rhythm exactly on the edge, where a peak is rejected as a band-edge artefact (decision 5). Lowering the edge to 0.08 Hz keeps 6 rpm inside the band. A slower band needs a longer window to hold two periods, so the first breathing value appears after 25 s of samples (at least two periods of the lowest frequency, 2 / 0.08 Hz); the heart rate is available after the 10 s warm-up. The buffer is 30 s so that the 25 s breathing window and the 15 s heart-rate window both fit with margin.
+
+Revisit if the team sessions show breathing values that lag too much for the exercise, or if the lower edge lets slow drift of the shoulders through.
+
+## 13. MediaPipe inside a module worker
+
+MediaPipe Tasks Vision runs inside the module worker with `FilesetResolver.forVisionTasks(base, true)`: the second argument selects the module loader. The classic loader fails in a module worker with "ModuleFactory not set.". The face and pose landmarkers use the GPU delegate and fall back to the CPU delegate when the GPU one cannot be created. The models and the WebAssembly runtime are pinned copies under `assets/` with SHA-256 checksums.
+
+The Angular application builder only bundles a worker that is created from an entry of the app, so the app has its own `sensor.worker.ts` that imports `vitals-web/worker`, and passes it to `createVitals` as `createWorker`. The module therefore stays framework-agnostic and the app owns the bundling.
+
+Revisit when MediaPipe fixes the classic loader in module workers, or if the GPU delegate misbehaves on the exhibition laptop (then fix the CPU delegate).
+
+## 14. Content Security Policy, exact and without nonces
+
+The policy is the same in the `<meta>` tag of `index.html` and in the header sent by `apps/demo/serve.mjs`: `default-src 'self'; connect-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data:; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`. A test compares the header with this string.
+
+There is no nonce and no `'unsafe-inline'`: scripts are external files, the components declare no `styles`, and the build does not inline critical CSS (`inlineCritical: false`), so `style-src 'self'` is enough. The one dynamic style, the breathing period of the circle, is set as a CSS custom property through the style object model, which the policy does not block. `'wasm-unsafe-eval'` is needed only for the Go and MediaPipe WebAssembly; `blob:` in `worker-src` and `img-src` and `data:` in `img-src` leave room for worker and image sources created at run time. The `<base href>` tag was removed because `base-uri 'none'` forbids it; the app is served from the root and uses no relative base.
+
+`frame-ancestors` is ignored by browsers when it comes from a `<meta>` tag (Chrome logs a console message for it, which is expected); it is enforced only because the server also sends it in the header. The e2e test asserts that no `securitypolicyviolation` event fires during a measuring session and that every request goes to the app's own origin.
+
+Revisit if a dependency needs inline styles or scripts (prefer changing the dependency's usage over loosening the policy), or if the demo is hosted behind another server (the header must be set there as well).
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).

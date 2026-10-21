@@ -1,6 +1,7 @@
 export type {
   BreathPhase,
   Confidence,
+  Diagnostics,
   Estimate,
   ExerciseSummary,
   Method,
@@ -15,3 +16,5 @@ export type {
 } from './types.js';
 export { createMockVitals } from './mock.js';
 export type { MockVitalsOptions } from './mock.js';
+export { createVitals } from './vitals.js';
+export type { VitalsDeps } from './vitals.js';

@@ -1,0 +1,6 @@
+<header class="shell">
+  <p class="camera-indicator" data-testid="camera-indicator" [class.on]="vitals.cameraOn()" aria-live="polite">
+    {{ vitals.cameraOn() ? 'Camera on' : 'Camera off' }}
+  </p>
+  <button type="button" class="exit" (click)="vitals.exit()">Exit</button>
+</header>

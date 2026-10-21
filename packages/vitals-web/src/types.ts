@@ -9,11 +9,7 @@ export type BreathPhase = 'in' | 'out' | 'hold';
 export type VitalsState = 'starting' | 'calibrating' | 'measuring' | 'paused' | 'stopped';
 
 export type VitalsErrorCode =
-  | 'camera_denied'
-  | 'camera_unavailable'
-  | 'wasm_failed'
-  | 'vision_failed'
-  | 'unsupported_browser';
+  'camera_denied' | 'camera_unavailable' | 'wasm_failed' | 'vision_failed' | 'unsupported_browser';
 
 export interface Estimate {
   tMs: number;
@@ -45,8 +41,15 @@ export interface VitalsOptions {
   method?: Method;
 }
 
+export interface Diagnostics {
+  frameCostMs: number;
+  droppedFrames: number;
+  pulse: number[];
+}
+
 export interface VitalsEvents {
   estimate: Estimate;
+  diagnostics: Diagnostics;
   state: VitalsState;
   error: VitalsError;
 }

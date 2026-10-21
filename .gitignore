@@ -12,3 +12,19 @@ coverage/
 # Participant sessions and reference-device logs are health data: they never go to the repository
 data/
 graphify-out/
+
+# WebAssembly build outputs (scripts/build-wasm.sh)
+packages/vitals-web/assets/wasm_exec.js
+
+# MediaPipe models and runtime (scripts/fetch-assets.sh), pinned by assets.sha256
+packages/vitals-web/assets/mediapipe/
+
+# Angular CLI cache
+.angular/
+
+# Fake camera video for the e2e tests (scripts/make-fake-video.mjs)
+apps/demo/e2e/fake.y4m
+
+# Playwright output
+test-results/
+playwright-report/

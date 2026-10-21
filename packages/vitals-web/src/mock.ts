@@ -1,3 +1,4 @@
+import { round, summarize } from './summary.js';
 import type {
   BreathPhase,
   Confidence,
@@ -36,15 +37,6 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function round(x: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return Math.round(x * f) / f;
-}
-
-function average(xs: number[]): number | null {
-  return xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-
 function confidenceFor(quality: number): Confidence {
   if (quality >= 0.75) return 'high';
   if (quality >= 0.6) return 'medium';
@@ -57,7 +49,12 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
   if (!Number.isInteger(warmupS) || warmupS < 1) {
     throw new RangeError('warmupS must be a positive integer number of seconds');
   }
-  const handlers: HandlerSets = { estimate: new Set(), state: new Set(), error: new Set() };
+  const handlers: HandlerSets = {
+    estimate: new Set(),
+    diagnostics: new Set(),
+    state: new Set(),
+    error: new Set(),
+  };
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let session = 0;
@@ -118,6 +115,7 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
     const estimate = elapsedS <= warmupS ? warmupEstimate(elapsedS) : measuringEstimate(elapsedS);
     history.push(estimate);
     emit('estimate', estimate);
+    if (id === session) emit('diagnostics', { frameCostMs: 0, droppedFrames: 0, pulse: [] });
     if (id === session && elapsedS === warmupS) emit('state', 'measuring');
   }
 
@@ -133,6 +131,8 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
         const error: VitalsError = { code: options.failWith };
         emit('error', error);
         emit('state', 'stopped');
+        // VitalsError is the module's typed rejection contract, not an Error subclass.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
         return Promise.reject(error);
       }
       started = true;
@@ -161,19 +161,7 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
     },
 
     summary(): ExerciseSummary | null {
-      if (!started) return null;
-      const valid = history.filter((e) => e.hrBpm !== null);
-      const measured = history.filter((e) => e.reason !== 'warming_up');
-      const rrMean = average(valid.flatMap((e) => (e.rrRpm === null ? [] : [e.rrRpm])));
-      const qualityMean = average(measured.map((e) => e.quality));
-      return {
-        hrStart: valid[0]?.hrBpm ?? null,
-        hrEnd: valid.at(-1)?.hrBpm ?? null,
-        rrMean: rrMean === null ? null : round(rrMean, 1),
-        qualityMean: qualityMean === null ? null : round(qualityMean, 2),
-        durationS: elapsedS,
-        method,
-      };
+      return started ? summarize(history, elapsedS, method) : null;
     },
   };
 }

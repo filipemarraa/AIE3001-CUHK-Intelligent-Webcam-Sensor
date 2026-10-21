@@ -32,6 +32,7 @@ func DefaultConfig() Config {
 type HeartRate struct {
 	BPM   float64
 	SNRdB float64
+	Pulse []float64
 }
 
 func EstimateHeartRate(tsMs, r, g, b []float64, cfg Config) (HeartRate, error) {
@@ -51,5 +52,5 @@ func EstimateHeartRate(tsMs, r, g, b []float64, cfg Config) (HeartRate, error) {
 	if err != nil {
 		return HeartRate{}, err
 	}
-	return HeartRate{BPM: peak.FreqHz * 60, SNRdB: peak.SNRdB}, nil
+	return HeartRate{BPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Pulse: pulse}, nil
 }

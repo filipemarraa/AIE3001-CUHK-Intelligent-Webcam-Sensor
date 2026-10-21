@@ -1,0 +1,26 @@
+<app-shell />
+<main>
+  <div class="stage" [hidden]="vitals.screen() === 'welcome' || vitals.screen() === 'summary'">
+    <video #video class="self-view" playsinline muted></video>
+    @if (vitals.screen() === 'calibration') {
+      <div class="framing-guide" data-testid="framing-guide" aria-hidden="true"></div>
+    }
+  </div>
+  @switch (vitals.screen()) {
+    @case ('welcome') {
+      <app-welcome [video]="video" />
+    }
+    @case ('calibration') {
+      <app-calibration />
+    }
+    @case ('exercise') {
+      <app-exercise />
+    }
+    @case ('summary') {
+      <app-summary />
+    }
+  }
+  @if (vitals.screen() === 'calibration' || vitals.screen() === 'exercise') {
+    <app-transparency-panel />
+  }
+</main>

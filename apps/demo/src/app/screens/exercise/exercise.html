@@ -1,0 +1,19 @@
+<section class="exercise" aria-labelledby="exercise-title">
+  <h1 id="exercise-title">Breathe with the circle</h1>
+  <div class="breath-circle" [style.--breath-period.s]="periodS" aria-hidden="true"></div>
+  <p class="guide-label" data-testid="guide-label">{{ label() }}</p>
+  @if (estimate()?.breathPhase; as phase) {
+    <p class="measured-phase" data-testid="measured-phase">You: {{ phase }}</p>
+  }
+  <button type="button" (click)="toggleNumbers()">{{ vitals.showNumbers() ? 'Hide numbers' : 'Show numbers' }}</button>
+  @if (vitals.showNumbers()) {
+    <div class="numbers" aria-live="polite">
+      @if (invalid()) {
+        <p>{{ reason() }}</p>
+      } @else {
+        <p>Heart rate: {{ heartRate() }} bpm</p>
+        <p>Breathing: {{ breathingRate() }} breaths/min</p>
+      }
+    </div>
+  }
+</section>

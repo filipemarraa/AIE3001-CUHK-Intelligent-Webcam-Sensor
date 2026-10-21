@@ -1,0 +1,23 @@
+<section class="transparency">
+  <button type="button" [attr.aria-expanded]="open()" (click)="toggle()">
+    {{ open() ? 'Hide details' : 'Show details' }}
+  </button>
+  @if (open()) {
+    <div class="details" data-testid="details">
+      @if (vitals.estimate(); as e) {
+        <p>Quality: {{ e.quality.toFixed(2) }}</p>
+        <p>Confidence: {{ e.confidence }}</p>
+        <p>Method: {{ e.method }}</p>
+      }
+      @if (vitals.diagnostics(); as d) {
+        <p>Frame cost: {{ d.frameCostMs.toFixed(1) }} ms</p>
+        <p>Dropped frames: {{ d.droppedFrames }}</p>
+      }
+      <svg class="pulse" [attr.viewBox]="viewBox" role="img" aria-label="Pulse signal">
+        @if (points() !== '') {
+          <polyline [attr.points]="points()" fill="none" stroke="currentColor" stroke-width="1.5" />
+        }
+      </svg>
+    </div>
+  }
+</section>

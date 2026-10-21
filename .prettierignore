@@ -1,0 +1,9 @@
+.omc/
+.superpowers/
+docs/
+README.md
+package-lock.json
+dist/
+coverage/
+engine/
+.angular/
