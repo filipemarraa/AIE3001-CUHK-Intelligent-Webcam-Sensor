@@ -57,7 +57,12 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
   if (!Number.isInteger(warmupS) || warmupS < 1) {
     throw new RangeError('warmupS must be a positive integer number of seconds');
   }
-  const handlers: HandlerSets = { estimate: new Set(), state: new Set(), error: new Set() };
+  const handlers: HandlerSets = {
+    estimate: new Set(),
+    diagnostics: new Set(),
+    state: new Set(),
+    error: new Set(),
+  };
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let session = 0;

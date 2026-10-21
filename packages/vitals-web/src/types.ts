@@ -41,8 +41,15 @@ export interface VitalsOptions {
   method?: Method;
 }
 
+export interface Diagnostics {
+  frameCostMs: number;
+  droppedFrames: number;
+  pulse: number[];
+}
+
 export interface VitalsEvents {
   estimate: Estimate;
+  diagnostics: Diagnostics;
   state: VitalsState;
   error: VitalsError;
 }

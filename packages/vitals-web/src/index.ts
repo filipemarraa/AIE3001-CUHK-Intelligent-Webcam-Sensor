@@ -1,6 +1,7 @@
 export type {
   BreathPhase,
   Confidence,
+  Diagnostics,
   Estimate,
   ExerciseSummary,
   Method,
