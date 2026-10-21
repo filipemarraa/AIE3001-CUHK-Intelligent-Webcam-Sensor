@@ -115,6 +115,20 @@ func TestBreathingAt6RPMAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestShouldersWithoutBreathingLeaveRRUnknown(t *testing.T) {
+	xs := synthSamples(72, 6, 40, 30)
+	rng := rand.New(rand.NewPCG(3, 4))
+	for i := range xs {
+		xs[i].ShoulderY = 0.6 + 0.001*rng.NormFloat64()
+	}
+	s := New(DefaultConfig())
+	e := s.Estimate(pushAll(s, xs))
+	assertHeartRate(t, e, 72)
+	if !math.IsNaN(e.RRRpm) || e.Phase != resp.PhaseUnknown {
+		t.Fatalf("RR %v phase %v from shoulders without breathing, want NaN and unknown", e.RRRpm, e.Phase)
+	}
+}
+
 func TestNoFaceInvalidates(t *testing.T) {
 	xs := synthSamples(72, 6, 25, 30)
 	for i := range xs {

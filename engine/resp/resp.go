@@ -10,6 +10,7 @@ import (
 var (
 	ErrTooShort    = errors.New("resp: window shorter than the minimum duration")
 	ErrNoShoulders = errors.New("resp: shoulder width must be positive")
+	ErrUnreliable  = errors.New("resp: shoulder signal is not periodic enough to be breathing")
 )
 
 type Phase int
@@ -42,6 +43,8 @@ type Config struct {
 	PhaseWindowS   float64
 	EnterThreshold float64
 	ExitThreshold  float64
+	MinPeriodicity float64
+	MinSNRdB       float64
 }
 
 func DefaultConfig() Config {
@@ -54,13 +57,16 @@ func DefaultConfig() Config {
 		PhaseWindowS:   0.5,
 		EnterThreshold: 0.2,
 		ExitThreshold:  0.1,
+		MinPeriodicity: 0.5,
+		MinSNRdB:       3,
 	}
 }
 
 type Breath struct {
-	RPM   float64
-	SNRdB float64
-	Phase Phase
+	RPM         float64
+	SNRdB       float64
+	Periodicity float64
+	Phase       Phase
 }
 
 func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Breath, error) {
@@ -92,10 +98,15 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 	if err != nil {
 		return Breath{}, err
 	}
+	// The SNR band is wide for slow breathing, so noise can still score well; repeating at its own period cannot.
+	periodicity := autocorrelation(filtered, int(math.Round(cfg.SampleRateHz/peak.FreqHz)))
+	if periodicity < cfg.MinPeriodicity || peak.SNRdB < cfg.MinSNRdB {
+		return Breath{}, ErrUnreliable
+	}
 
 	// The band-passed tail rings at the window edge, so the slope comes from the lightly smoothed signal instead.
 	d := tailSlope(detrended, cfg) / stddev(filtered)
-	return Breath{RPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Phase: nextPhase(d, prev, cfg)}, nil
+	return Breath{RPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Periodicity: periodicity, Phase: nextPhase(d, prev, cfg)}, nil
 }
 
 func nextPhase(d float64, prev Phase, cfg Config) Phase {
@@ -142,6 +153,23 @@ func tailSlope(x []float64, cfg Config) float64 {
 		return 0
 	}
 	return (n*sumTY - sumT*sumY) / den
+}
+
+// autocorrelation is the normalised correlation of x with itself shifted by lag samples, in [-1, 1].
+func autocorrelation(x []float64, lag int) float64 {
+	if lag <= 0 || lag >= len(x) {
+		return 0
+	}
+	var xy, xx, yy float64
+	for i := 0; i+lag < len(x); i++ {
+		xy += x[i] * x[i+lag]
+		xx += x[i] * x[i]
+		yy += x[i+lag] * x[i+lag]
+	}
+	if xx == 0 || yy == 0 {
+		return 0
+	}
+	return xy / math.Sqrt(xx*yy)
 }
 
 func stddev(x []float64) float64 {

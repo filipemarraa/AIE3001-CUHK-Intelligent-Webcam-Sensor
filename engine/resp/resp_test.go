@@ -62,6 +62,27 @@ func TestEstimateAt6RPMAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestEstimateRejectsShouldersWithoutBreathing(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		ts, y, w := synthShoulders(0, 30, 15, 8, 0.001, seed)
+		got, err := Estimate(ts, y, w, PhaseUnknown, DefaultConfig())
+		if !errors.Is(err, ErrUnreliable) {
+			t.Errorf("seed %d: got %.1f rpm, err %v, want ErrUnreliable", seed, got.RPM, err)
+		}
+	}
+}
+
+func TestEstimateReportsPeriodicity(t *testing.T) {
+	ts, y, w := synthShoulders(10, 30, 15, 8, 0.0005, 1)
+	got, err := Estimate(ts, y, w, PhaseUnknown, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Periodicity < 0.8 {
+		t.Fatalf("periodicity %.2f for clean breathing, want at least 0.8", got.Periodicity)
+	}
+}
+
 func TestEstimateTooShort(t *testing.T) {
 	ts, y, w := synthShoulders(10, 15, 30, 8, 0, 1)
 	if _, err := Estimate(ts, y, w, PhaseUnknown, DefaultConfig()); !errors.Is(err, ErrTooShort) {
