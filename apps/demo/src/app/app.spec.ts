@@ -38,6 +38,24 @@ describe('App', () => {
     expect(el.querySelector('app-welcome')).toBeNull();
   });
 
+  it('keeps one video element from calibration to exercise and shows the framing guide only while calibrating', async () => {
+    const service = TestBed.inject(VitalsService);
+    const video = el.querySelector('video');
+    await service.consentAndStart(document.createElement('video'));
+    await fixture.whenStable();
+
+    expect(el.querySelector('app-calibration')).not.toBeNull();
+    expect(el.querySelector('[data-testid="framing-guide"]')).not.toBeNull();
+
+    fake.emit('estimate', estimate());
+    await fixture.whenStable();
+
+    expect(el.querySelector('app-exercise')).not.toBeNull();
+    expect(el.querySelector('[data-testid="framing-guide"]')).toBeNull();
+    expect(el.querySelector('video')).toBe(video);
+    expect(el.querySelector('app-transparency-panel')).not.toBeNull();
+  });
+
   it('keeps Exit visible on every screen and Exit returns to welcome', async () => {
     const service = TestBed.inject(VitalsService);
     expect(button('Exit')).toBeTruthy();

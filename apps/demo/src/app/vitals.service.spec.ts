@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeVitals, WARMING_UP, estimate } from './testing/fake-vitals';
-import { VITALS_FACTORY, VitalsService } from './vitals.service';
+import { EXERCISE_S, NO_FACE_TIMEOUT_S, VITALS_FACTORY, VitalsService } from './vitals.service';
 
 describe('VitalsService', () => {
   let fake: FakeVitals;
@@ -12,6 +12,10 @@ describe('VitalsService', () => {
     fake = new FakeVitals();
     TestBed.configureTestingModule({ providers: [{ provide: VITALS_FACTORY, useValue: () => fake }] });
     service = TestBed.inject(VitalsService);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('does not start the camera before consent', () => {
@@ -157,5 +161,164 @@ describe('VitalsService', () => {
     await service.consentAndStart(video);
 
     expect(service.error()).toBeNull();
+  });
+
+  it('a start that rejects without an error event still turns the camera off', async () => {
+    fake.start.mockImplementationOnce(() => Promise.reject(new Error('boom')));
+
+    await service.consentAndStart(video);
+
+    expect(service.screen()).toBe('welcome');
+    expect(service.cameraOn()).toBe(false);
+  });
+
+  describe('exhibition mode', () => {
+    const NO_FACE = estimate({
+      hrBpm: null,
+      rrRpm: null,
+      breathPhase: null,
+      confidence: 'invalid',
+      reason: 'no_face',
+    });
+
+    function emitMany(count: number, e = NO_FACE): void {
+      for (let i = 0; i < count; i += 1) fake.emit('estimate', e);
+    }
+
+    it('60 consecutive no_face estimates act like Exit', async () => {
+      await service.consentAndStart(video);
+      fake.stop.mockClear();
+
+      emitMany(59);
+      expect(service.screen()).toBe('calibration');
+      emitMany(1);
+
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(service.screen()).toBe('welcome');
+      expect(service.cameraOn()).toBe(false);
+      expect(service.estimate()).toBeNull();
+    });
+
+    it('any other estimate in between restarts the count', async () => {
+      await service.consentAndStart(video);
+
+      emitMany(59);
+      fake.emit('estimate', WARMING_UP);
+      emitMany(59);
+
+      expect(service.screen()).toBe('calibration');
+    });
+
+    it('counts during the exercise too', async () => {
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      expect(service.screen()).toBe('exercise');
+
+      emitMany(60);
+
+      expect(service.screen()).toBe('welcome');
+    });
+
+    it('a new session starts counting from zero', async () => {
+      await service.consentAndStart(video);
+      emitMany(59);
+      service.exit();
+      await service.consentAndStart(video);
+
+      emitMany(59);
+
+      expect(service.screen()).toBe('calibration');
+    });
+
+    it('ends the exercise by itself after EXERCISE_S and shows the summary', async () => {
+      vi.useFakeTimers();
+      fake.summaryValue = { hrStart: 70, hrEnd: 64, rrMean: 6, qualityMean: 0.8, durationS: 120, method: 'pos' };
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      fake.stop.mockClear();
+
+      vi.advanceTimersByTime(EXERCISE_S * 1000 - 1);
+      expect(service.screen()).toBe('exercise');
+      vi.advanceTimersByTime(1);
+
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(service.screen()).toBe('summary');
+      expect(service.summary()).toEqual(fake.summaryValue);
+      expect(service.cameraOn()).toBe(false);
+    });
+
+    it('reads the summary before stopping the module', async () => {
+      const order: string[] = [];
+      fake.summary.mockImplementation(() => {
+        order.push('summary');
+        return null;
+      });
+      fake.stop.mockImplementation(() => {
+        order.push('stop');
+      });
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+
+      service.finishExercise();
+
+      expect(order).toEqual(['summary', 'stop']);
+    });
+
+    it('does not end the exercise after Exit', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      service.exit();
+      fake.stop.mockClear();
+
+      vi.advanceTimersByTime(EXERCISE_S * 1000 * 2);
+
+      expect(fake.stop).not.toHaveBeenCalled();
+      expect(service.screen()).toBe('welcome');
+    });
+
+    it('Start again from the summary returns to welcome with everything cleared', async () => {
+      fake.summaryValue = { hrStart: 70, hrEnd: 64, rrMean: 6, qualityMean: 0.8, durationS: 120, method: 'pos' };
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      service.showNumbers.set(true);
+      service.finishExercise();
+      fake.stop.mockClear();
+
+      service.startAgain();
+
+      expect(fake.stop).not.toHaveBeenCalled();
+      expect(service.screen()).toBe('welcome');
+      expect(service.summary()).toBeNull();
+      expect(service.estimate()).toBeNull();
+      expect(service.showNumbers()).toBe(false);
+    });
+
+    it('returns to welcome after NO_FACE_TIMEOUT_S idle on the summary', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      service.finishExercise();
+
+      vi.advanceTimersByTime(NO_FACE_TIMEOUT_S * 1000 - 1);
+      expect(service.screen()).toBe('summary');
+      vi.advanceTimersByTime(1);
+
+      expect(service.screen()).toBe('welcome');
+      expect(service.summary()).toBeNull();
+    });
+
+    it('does not come back to welcome later if the summary was left earlier', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      service.finishExercise();
+      service.startAgain();
+      await service.consentAndStart(video);
+
+      vi.advanceTimersByTime(NO_FACE_TIMEOUT_S * 1000);
+
+      expect(service.screen()).toBe('calibration');
+    });
   });
 });

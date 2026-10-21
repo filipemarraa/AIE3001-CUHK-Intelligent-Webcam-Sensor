@@ -72,10 +72,102 @@ main {
   padding: 2rem 1.5rem;
 }
 
+.stage {
+  position: relative;
+}
+
 .self-view {
+  display: block;
   width: 100%;
   border-radius: 0.75rem;
   transform: scaleX(-1);
+}
+
+.framing-guide {
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  width: 40%;
+  height: 80%;
+  transform: translateX(-50%);
+  border: 3px dashed var(--accent-fg);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+
+.calibration .reason,
+.exercise .numbers {
+  font-size: 1.25rem;
+  font-weight: 600;
+  min-height: 1.75rem;
+}
+
+.exercise {
+  text-align: center;
+}
+
+.breath-circle {
+  --breath-period: 10s;
+  width: 12rem;
+  height: 12rem;
+  margin: 1.5rem auto;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: breathe var(--breath-period) ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(0.5);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breath-circle {
+    animation: none;
+    transform: scale(0.75);
+  }
+}
+
+.guide-label {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.measured-phase {
+  color: var(--muted);
+  margin: 0.25rem 0 1rem;
+}
+
+.results {
+  list-style: none;
+  padding: 0;
+  font-size: 1.25rem;
+}
+
+.transparency {
+  margin-top: 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.transparency p {
+  margin: 0.25rem 0;
+}
+
+.pulse {
+  width: 100%;
+  max-width: 300px;
+  height: 60px;
+  margin-top: 0.5rem;
+  color: var(--accent);
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
 }
 
 .welcome h1 {
