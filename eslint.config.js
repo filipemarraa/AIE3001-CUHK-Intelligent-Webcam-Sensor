@@ -13,7 +13,7 @@ export default tseslint.config(
         projectService: {
           defaultProject: 'packages/vitals-web/tsconfig.json',
           // Virtual files used by lint-rules.test.ts do not exist on disk.
-          allowDefaultProject: ['packages/vitals-web/src/x.ts', 'packages/vitals-web/src/worker/assets.ts'],
+          allowDefaultProject: ['packages/vitals-web/src/x.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },

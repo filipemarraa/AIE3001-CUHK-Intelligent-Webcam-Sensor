@@ -12,3 +12,6 @@ coverage/
 # Participant sessions and reference-device logs are health data: they never go to the repository
 data/
 graphify-out/
+
+# WebAssembly build outputs (scripts/build-wasm.sh)
+packages/vitals-web/assets/wasm_exec.js

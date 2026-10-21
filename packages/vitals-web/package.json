@@ -10,9 +10,12 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "scripts": {
+    "build:wasm": "../../scripts/build-wasm.sh",
+    "pretest": "npm run build:wasm",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
