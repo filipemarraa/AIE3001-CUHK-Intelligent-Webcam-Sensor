@@ -93,6 +93,7 @@ const POSE: Point[] = Array.from({ length: 33 }, (_, i) =>
 
 interface SetupOptions {
   record?: boolean;
+  landmarkEvery?: number;
   faces?: () => Point[][];
   pose?: () => Point[] | null;
   estimate?: () => Decoded;
@@ -121,7 +122,15 @@ function setup(opts: SetupOptions = {}) {
   const post = vi.fn((m: FromWorker) => {
     posted.push(m);
   });
-  const sensor = createSensor({ face, pose, engine, post, now: () => clock.t, record: opts.record ?? false });
+  const sensor = createSensor({
+    face,
+    pose,
+    engine,
+    post,
+    now: () => clock.t,
+    record: opts.record ?? false,
+    landmarkEvery: opts.landmarkEvery ?? 1,
+  });
   const px = image();
   const rects: Box[] = [];
   const pixels = (rect: Box): Uint8ClampedArray => {
@@ -133,7 +142,7 @@ function setup(opts: SetupOptions = {}) {
   const frame = (tMs: number): void => {
     sensor.onFrame(source, tMs, WIDTH, HEIGHT, pixels);
   };
-  return { clock, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
+  return { clock, face, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
 }
 
 afterEach(() => {
@@ -141,6 +150,44 @@ afterEach(() => {
 });
 
 describe('createSensor', () => {
+  it('with landmarkEvery 3 finds landmarks every third frame and reads the colour on every frame', () => {
+    const s = setup({ landmarkEvery: 3 });
+    for (let i = 0; i < 7; i++) s.frame(i * 33);
+    expect(s.face.detect).toHaveBeenCalledTimes(3);
+    expect(s.pushed.every((x) => x[SAMPLE.face] === 1 && (x[SAMPLE.g] ?? 0) > 0)).toBe(true);
+  });
+
+  it('spreads the motion between landmark frames over the frames in between', () => {
+    let dx = 0;
+    const s = setup({ landmarkEvery: 3, faces: () => [makeFace(dx)] });
+    s.frame(0);
+    s.frame(33);
+    s.frame(66);
+    dx = 0.048;
+    s.frame(100);
+    expect(s.pushed[3]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9); // 0.3 inter-ocular distances over 3 frames
+    s.frame(133);
+    expect(s.pushed[4]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9);
+  });
+
+  it('looks for the face again when the last landmarks are older than 250 ms', () => {
+    const s = setup({ landmarkEvery: 10 });
+    s.frame(0);
+    s.frame(300);
+    expect(s.face.detect).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops reusing a face that the next landmark frame no longer finds', () => {
+    let present = true;
+    const s = setup({ landmarkEvery: 2, faces: () => (present ? [makeFace()] : []) });
+    s.frame(0);
+    present = false;
+    s.frame(33);
+    s.frame(66);
+    s.frame(100);
+    expect(s.pushed.map((x) => x[SAMPLE.face])).toEqual([1, 1, 0, 0]);
+  });
+
   it('posts the numeric samples of the last second with the estimate when recording', () => {
     const s = setup({ record: true });
     s.clock.t = 900;

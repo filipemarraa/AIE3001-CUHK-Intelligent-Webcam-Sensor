@@ -23,6 +23,8 @@ export interface SensorDeps {
   post: (m: FromWorker) => void;
   now: () => number;
   record?: boolean;
+  // Find landmarks every N frames and read the skin colour on every frame from the last skin region.
+  landmarkEvery?: number;
 }
 
 export interface Sensor {
@@ -42,6 +44,8 @@ export interface Sensor {
 
 // Pose at 15 Hz is enough for breathing (≤ 0.5 Hz) and halves the vision cost per frame.
 const POSE_EVERY_N_FRAMES = 2;
+// Reused landmarks older than this are not trusted: the head may have moved out of the old skin region.
+const MAX_LANDMARK_AGE_MS = 250;
 const FRAME_WIDTH = 640;
 const FRAME_HEIGHT = 480;
 
@@ -85,6 +89,8 @@ export function createSensor(deps: SensorDeps): Sensor {
   const post = checkedPost(deps.post);
   let frames = 0;
   let prevFace: Point[] | null = null;
+  let landmarks: { face: Point[]; tMs: number; frame: number; motion: number } | null = null;
+  const every = Math.max(1, Math.round(deps.landmarkEvery ?? 1));
   let held: { y: number; w: number } | null = null;
   let second: number | null = null;
   let costSum = 0;
@@ -92,8 +98,26 @@ export function createSensor(deps: SensorDeps): Sensor {
   const recorded: number[][] = [];
   const reported = { vision: false, wasm: false };
 
-  function sample(img: VisionImage, tMs: number, width: number, height: number, pixels: (r: Box) => Uint8ClampedArray) {
+  // Returns the landmarks for this frame and the per-frame motion; between detections both are carried over.
+  function locate(img: VisionImage, tMs: number): { faces: Point[][]; motion: number } {
+    const due =
+      every === 1 || landmarks === null || frames % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
+    if (!due && landmarks !== null) return { faces: [landmarks.face], motion: landmarks.motion };
     const faces = deps.face.detect(img, tMs);
+    const face = faces[0];
+    if (face === undefined) {
+      landmarks = null;
+      return { faces, motion: 0 };
+    }
+    const span = landmarks === null ? 1 : Math.max(1, frames - landmarks.frame);
+    const perFrame = motion(prevFace, face) / span;
+    landmarks = { face, tMs, frame: frames, motion: perFrame };
+    return { faces, motion: perFrame };
+  }
+
+  function sample(img: VisionImage, tMs: number, width: number, height: number, pixels: (r: Box) => Uint8ClampedArray) {
+    const located = locate(img, tMs);
+    const faces = located.faces;
     if (frames % POSE_EVERY_N_FRAMES === 0) held = shoulders(deps.pose.detect(img, tMs));
     frames++;
     const x = new Float64Array(SAMPLE.length);
@@ -112,7 +136,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.b] = skin.b;
     x[SAMPLE.light] = skin.luma;
     x[SAMPLE.mouth] = mouthOpening(face);
-    x[SAMPLE.motion] = motion(prevFace, face);
+    x[SAMPLE.motion] = located.motion;
     prevFace = face;
     return x;
   }
@@ -175,6 +199,7 @@ export function createSensor(deps: SensorDeps): Sensor {
       recorded.length = 0;
       frames = 0;
       prevFace = null;
+      landmarks = null;
       held = null;
       reported.vision = false;
       reported.wasm = false;
