@@ -1,7 +1,7 @@
-import type { Decoded } from './decode';
-import { decodeEstimate } from './decode';
-import { OUT, SAMPLE } from './layout';
-import { instantiateStreaming } from '../worker/assets';
+import type { Decoded } from './decode.js';
+import { decodeEstimate } from './decode.js';
+import { OUT, SAMPLE } from './layout.js';
+import { instantiateStreaming } from '../worker/assets.js';
 
 export interface Engine {
   push(sample: Float64Array): void;

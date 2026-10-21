@@ -15,3 +15,6 @@ graphify-out/
 
 # WebAssembly build outputs (scripts/build-wasm.sh)
 packages/vitals-web/assets/wasm_exec.js
+
+# MediaPipe models and runtime (scripts/fetch-assets.sh), pinned by assets.sha256
+packages/vitals-web/assets/mediapipe/

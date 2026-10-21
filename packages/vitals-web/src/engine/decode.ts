@@ -1,5 +1,5 @@
-import type { BreathPhase, Confidence, Estimate, Reason } from '../types';
-import { OUT } from './layout';
+import type { BreathPhase, Confidence, Estimate, Reason } from '../types.js';
+import { OUT } from './layout.js';
 
 const PHASES: readonly (BreathPhase | null)[] = [null, 'in', 'out', 'hold'];
 const CONFIDENCES: readonly Confidence[] = ['high', 'medium', 'low', 'invalid'];
