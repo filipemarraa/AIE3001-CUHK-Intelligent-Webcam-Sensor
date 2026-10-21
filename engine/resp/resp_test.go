@@ -154,6 +154,24 @@ func TestPhaseIgnoresCardiacMotionOfTheShoulders(t *testing.T) {
 	}
 }
 
+func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
+	for _, rpm := range []float64{6, 15} {
+		f := rpm / 60
+		ts, y, w := synthShoulders(rpm, 60, 30, 0, 0, 1)
+		for end := 27.0; end <= 60; end += 0.1 {
+			n := int(end * 30)
+			got, err := Estimate(ts[:n], y[:n], w[:n], PhaseUnknown, DefaultConfig())
+			if err != nil {
+				t.Fatalf("%v rpm, window ending %.1f s: %v", rpm, end, err)
+			}
+			speed := math.Abs(math.Cos(2 * math.Pi * f * ts[n-1] / 1000))
+			if speed > 0.5 && got.Phase == PhaseHold {
+				t.Errorf("%v rpm at %.1f s: hold while breathing at %.0f%% of its peak speed", rpm, end, 100*speed)
+			}
+		}
+	}
+}
+
 func TestPhaseHoldWhenFlat(t *testing.T) {
 	ts, y, w := synthShoulders(6, 25, 30, 0, 0, 1)
 	last := y[len(y)-1]

@@ -114,16 +114,21 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 
 // phase reads the direction from a sinusoid fitted at the breathing frequency over the last cycle: a matched filter
 // that rejects faster motion such as the heartbeat and does not ring at the window edge like a band-pass filter.
-// A flat recent slope, relative to that sinusoid, means a pause or a turning point.
+// Turning points come out as hold through the hysteresis on that direction. A real pause is the recent signal being
+// much flatter than the sinusoid predicts for the same window, which a turning point inside the window is not.
 func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
-	omega := 2 * math.Pi * freqHz
-	d, amp := sinusoidAtEnd(x, freqHz, cfg.SampleRateHz)
-	// Past a quarter period the slope window averages rising and falling parts and fakes a pause.
-	window := min(cfg.HoldWindowS, 0.25/freqHz)
-	if amp == 0 || math.Abs(linearSlope(x, int(math.Round(window*cfg.SampleRateHz)), cfg.SampleRateHz)) < cfg.HoldRatio*amp*omega {
+	fit, ok := fitSinusoid(x, freqHz, cfg.SampleRateHz)
+	if !ok {
 		return PhaseHold
 	}
-	return nextPhase(d, prev, cfg)
+	m := min(len(x), max(2, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
+	expected := linearSlope(fit.tail(m), m, cfg.SampleRateHz)
+	observed := linearSlope(x, m, cfg.SampleRateHz)
+	peak := fit.amp * 2 * math.Pi * freqHz
+	if math.Abs(expected) >= 2*cfg.HoldRatio*peak && math.Abs(observed) < cfg.HoldRatio*math.Abs(expected) {
+		return PhaseHold
+	}
+	return nextPhase(fit.direction(), prev, cfg)
 }
 
 func nextPhase(d float64, prev Phase, cfg Config) Phase {
@@ -140,9 +145,33 @@ func nextPhase(d float64, prev Phase, cfg Config) Phase {
 	return prev
 }
 
-// sinusoidAtEnd fits a·cos(ωt) + b·sin(ωt) + c over the last period of x and returns the slope of the sinusoid at
-// the last sample divided by its peak slope (so in [-1, 1], positive while rising) and its amplitude.
-func sinusoidAtEnd(x []float64, freqHz, fs float64) (d, amp float64) {
+// sinusoid is a·cos(ωk) + b·sin(ωk) over sample index k, fitted to the last n samples of a signal.
+type sinusoid struct {
+	a, b, omega, amp float64
+	n                int
+}
+
+func (s sinusoid) at(k int) float64 {
+	return s.a*math.Cos(s.omega*float64(k)) + s.b*math.Sin(s.omega*float64(k))
+}
+
+// direction is the slope at the last sample over the peak slope: in [-1, 1], positive while rising.
+func (s sinusoid) direction() float64 {
+	end := s.omega * float64(s.n-1)
+	return (-s.a*math.Sin(end) + s.b*math.Cos(end)) / s.amp
+}
+
+// tail returns the last m values of the fitted sinusoid.
+func (s sinusoid) tail(m int) []float64 {
+	out := make([]float64, m)
+	for i := range out {
+		out[i] = s.at(s.n - m + i)
+	}
+	return out
+}
+
+// fitSinusoid fits a·cos(ωt) + b·sin(ωt) + c over the last period of x by least squares.
+func fitSinusoid(x []float64, freqHz, fs float64) (sinusoid, bool) {
 	n := min(len(x), max(4, int(math.Round(fs/freqHz))))
 	seg := x[len(x)-n:]
 	omega := 2 * math.Pi * freqHz / fs
@@ -158,15 +187,10 @@ func sinusoidAtEnd(x []float64, freqHz, fs float64) (d, amp float64) {
 	}
 	coef, ok := solve3(m)
 	if !ok {
-		return 0, 0
+		return sinusoid{}, false
 	}
-	a, b := coef[0], coef[1]
-	amp = math.Hypot(a, b)
-	if amp == 0 {
-		return 0, 0
-	}
-	end := omega * float64(n-1)
-	return (-a*math.Sin(end) + b*math.Cos(end)) / amp, amp
+	s := sinusoid{a: coef[0], b: coef[1], omega: omega, amp: math.Hypot(coef[0], coef[1]), n: n}
+	return s, s.amp > 0
 }
 
 // solve3 solves a 3x3 linear system given as an augmented matrix, by Gaussian elimination with partial pivoting.
