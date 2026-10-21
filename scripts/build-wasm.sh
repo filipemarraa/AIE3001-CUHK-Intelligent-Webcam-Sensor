@@ -11,7 +11,7 @@ mkdir -p "$assets"
 goroot="$(go env GOROOT)"
 exec_js="$goroot/lib/wasm/wasm_exec.js"
 [ -f "$exec_js" ] || exec_js="$goroot/misc/wasm/wasm_exec.js"
-cp "$exec_js" "$assets/wasm_exec.js"
+install -m 644 "$exec_js" "$assets/wasm_exec.js"
 
 raw=$(wc -c < "$assets/engine.wasm")
 compressed=$(brotli -c "$assets/engine.wasm" | wc -c)
