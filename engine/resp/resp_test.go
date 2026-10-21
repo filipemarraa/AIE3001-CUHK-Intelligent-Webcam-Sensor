@@ -329,6 +329,37 @@ func TestPhaseRecoversAfterRhythmOrDepthChange(t *testing.T) {
 	}
 }
 
+func TestStrongPeriodicNoiseDoesNotLatchAHold(t *testing.T) {
+	const fps = 30.0
+	var ts, y, w []float64
+	for i := 0; i < int(45*fps); i++ {
+		t := float64(i) / fps
+		ts = append(ts, t*1000)
+		y = append(y, 0.6-0.004*math.Sin(2*math.Pi*0.4*t)+0.0015*math.Cos(2*math.Pi*5*t))
+		w = append(w, 0.3)
+	}
+	prev := PhaseUnknown
+	var clear, calls int
+	for end := 25.5; end <= 45; end += 0.5 {
+		n := int(end * fps)
+		from := max(0, n-int(30*fps))
+		got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
+		if err == nil {
+			prev = got.Phase
+		}
+		if math.Abs(math.Cos(2*math.Pi*0.4*ts[n-1]/1000)) < 0.5 {
+			continue
+		}
+		clear++
+		if err == nil && (got.Phase == PhaseIn || got.Phase == PhaseOut) {
+			calls++
+		}
+	}
+	if float64(calls) < 0.8*float64(clear) {
+		t.Fatalf("%d calls in %d clear moments of steady 24 rpm breathing, want at least 80%%", calls, clear)
+	}
+}
+
 func TestPhaseHoldDuringAPauseWithLandmarkNoise(t *testing.T) {
 	const fps = 30.0
 	noises := map[string]func(t float64, rng *rand.Rand) float64{

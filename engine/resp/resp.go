@@ -133,9 +133,13 @@ func phase(x, raw []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	// does not leak into the reference it is compared with.
 	w := stillSamples(x, raw, m, heartHz, cfg)
 	// A pause already called holds while the shoulders stay still for longer than any turning point does, so one noisy
-	// window cannot flip it back.
-	if prev == PhaseHold && w >= 2*m {
-		return PhaseHold
+	// window cannot flip it back; but only while a straight line still explains that stretch at least as well as the
+	// breathing would, or noise that raises the stillness limits could latch the hold during breathing.
+	if prev == PhaseHold && w >= 2*m && len(x) > w+fit.n {
+		if before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz); ok &&
+			stillFavoured(x[len(x)-w:], before.next(w), heartHz, cfg) {
+			return PhaseHold
+		}
 	}
 	if w >= m && len(x) > w+fit.n {
 		before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
@@ -286,6 +290,18 @@ func paused(observed, predicted []float64, amp, heartHz float64, cfg Config) boo
 	_, errLine := leastSquares(observed, heartColumns(n, heartHz, cfg.SampleRateHz, true))
 	// The ratio keeps noise alone, which both models explain about as badly, from passing for a pause.
 	return errBreathing-errLine >= 0.5*spread && errBreathing >= 3*errLine
+}
+
+// stillFavoured is the relaxed form of paused used to keep a pause: the line does at least as well as the breathing.
+func stillFavoured(observed, predicted []float64, heartHz float64, cfg Config) bool {
+	n := len(observed)
+	residual := make([]float64, n)
+	for k := range residual {
+		residual[k] = observed[k] - predicted[k]
+	}
+	_, errBreathing := leastSquares(residual, heartColumns(n, heartHz, cfg.SampleRateHz, false))
+	_, errLine := leastSquares(observed, heartColumns(n, heartHz, cfg.SampleRateHz, true))
+	return errLine <= errBreathing
 }
 
 // leastSquares fits y with a combination of the given columns and returns the coefficients and the squared error left.
