@@ -64,6 +64,29 @@ describe('engine over real WebAssembly', () => {
     expect(engine.estimate(0).estimate.confidence).toBe('invalid');
   });
 
+  it('survives wrong argument types on the raw bridge', () => {
+    const raw = (globalThis as { vitalsEngine?: Record<string, (...args: unknown[]) => unknown> }).vitalsEngine;
+    expect(raw).toBeDefined();
+    const calls: [string, unknown[]][] = [
+      ['push', []],
+      ['push', [null]],
+      ['push', [{}]],
+      ['push', [new Float64Array(SAMPLE.length)]],
+      ['push', [new Uint8Array(3)]],
+      ['estimate', []],
+      ['estimate', ['now', new Uint8Array(8)]],
+      ['estimate', [1, null]],
+      ['estimate', [1, new Float64Array(4)]],
+      ['estimate', [1, new Uint8Array(4)]],
+    ];
+    for (const [name, args] of calls) {
+      expect(() => raw?.[name]?.(...args), `${name}(${args.map(String).join(', ')})`).not.toThrow();
+    }
+    engine.reset();
+    const now = pushAll(engine, synthSamples({ bpm: 72, durationS: 15 }));
+    expect(Math.abs((engine.estimate(now).estimate.hrBpm ?? 0) - 72)).toBeLessThanOrEqual(2);
+  });
+
   it('keeps push and estimate within the round-trip budget', () => {
     engine.reset();
     const samples = synthSamples({ bpm: 72, durationS: 40, seed: 5 });
