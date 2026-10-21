@@ -191,6 +191,35 @@ func TestPhaseHoldWhenFlat(t *testing.T) {
 	}
 }
 
+func TestPhaseHoldDuringAPauseWithCardiacMotion(t *testing.T) {
+	for _, hz := range []float64{0.8, 1, 1.3, 2} {
+		for _, startS := range []float64{25, 25.6, 26.4, 27.5} {
+			assertPauseWithTremor(t, startS, hz)
+		}
+	}
+}
+
+func assertPauseWithTremor(t *testing.T, startS, hz float64) {
+	t.Helper()
+	ts, y, w := synthShoulders(6, startS, 30, 0, 0, 1)
+	last := y[len(y)-1]
+	for i := 1; i <= 90; i++ {
+		ts = append(ts, ts[len(ts)-1]+1000.0/30)
+		y = append(y, last)
+		w = append(w, 0.3)
+	}
+	for i := range y {
+		y[i] += 0.001 * math.Sin(2*math.Pi*hz*ts[i]/1000+3*math.Pi/4)
+	}
+	got, err := Estimate(ts, y, w, PhaseIn, DefaultConfig())
+	if err != nil {
+		t.Fatalf("pause from %.1f s, %v Hz tremor: %v", startS, hz, err)
+	}
+	if got.Phase != PhaseHold {
+		t.Errorf("pause from %.1f s with a %v Hz heartbeat moving the shoulders: got %v, want hold", startS, hz, got.Phase)
+	}
+}
+
 func TestPhaseHysteresis(t *testing.T) {
 	cfg := DefaultConfig()
 	cases := []struct {

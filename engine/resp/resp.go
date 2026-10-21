@@ -122,11 +122,30 @@ func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	if !ok {
 		return PhaseHold
 	}
-	m := min(len(x), max(3, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
-	if paused(x[len(x)-m:], fit.tail(m), fit.amp, cfg) {
+	// A 1 s moving average nulls 1 Hz and damps the rest of the heartbeat band, which keeps moving the shoulders
+	// during a pause; the same average is applied to the sinusoid so the comparison stays fair.
+	smooth := max(1, int(math.Round(cfg.SampleRateHz)))
+	m := min(len(x)-smooth+1, max(3, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
+	if m >= 3 && paused(movingAverage(x[len(x)-m-smooth+1:], smooth), movingAverage(fit.tail(m+smooth-1), smooth), fit.amp, cfg) {
 		return PhaseHold
 	}
 	return nextPhase(fit.direction(), prev, cfg)
+}
+
+// movingAverage returns the trailing means of n consecutive values: len(x)-n+1 of them.
+func movingAverage(x []float64, n int) []float64 {
+	out := make([]float64, 0, len(x)-n+1)
+	var sum float64
+	for i, v := range x {
+		sum += v
+		if i >= n {
+			sum -= x[i-n]
+		}
+		if i >= n-1 {
+			out = append(out, sum/float64(n))
+		}
+	}
+	return out
 }
 
 func nextPhase(d float64, prev Phase, cfg Config) Phase {
