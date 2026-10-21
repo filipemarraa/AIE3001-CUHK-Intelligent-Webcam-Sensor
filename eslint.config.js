@@ -1,0 +1,32 @@
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
+
+const BANNED = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'localStorage', 'sessionStorage', 'indexedDB'];
+
+export default tseslint.config(
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', 'engine/**'] },
+  {
+    files: ['packages/**/src/**/*.ts', 'apps/**/src/**/*.ts'],
+    extends: [eslint.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          defaultProject: 'packages/vitals-web/tsconfig.json',
+          // Virtual files used by lint-rules.test.ts do not exist on disk.
+          allowDefaultProject: ['packages/vitals-web/src/x.ts', 'packages/vitals-web/src/worker/assets.ts'],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...BANNED.map((name) => ({ name, message: 'Network and storage are banned (spec §3)' })),
+      ],
+    },
+  },
+  {
+    files: ['packages/vitals-web/src/worker/assets.ts'],
+    rules: { 'no-restricted-globals': 'off' },
+  },
+);

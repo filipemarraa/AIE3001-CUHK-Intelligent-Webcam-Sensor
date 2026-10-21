@@ -133,6 +133,8 @@ export function createMockVitals(options: MockVitalsOptions = {}): Vitals {
         const error: VitalsError = { code: options.failWith };
         emit('error', error);
         emit('state', 'stopped');
+        // VitalsError is the module's typed rejection contract, not an Error subclass.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
         return Promise.reject(error);
       }
       started = true;
