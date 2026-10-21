@@ -61,9 +61,9 @@ One worker holds both the vision step (MediaPipe) and the Go/WebAssembly engine,
 
 1. **Capture.** `getUserMedia` with `requestVideoFrameCallback`, using the frame capture time so that irregular frame intervals do not distort the spectrum.
 2. **Vision.** In the sensor worker, MediaPipe Face Landmarker selects the forehead and cheeks; MediaPipe Pose Landmarker tracks the shoulders. Each frame becomes one numeric sample: timestamp, mean R, G, B of the skin region and a few quality metrics.
-3. **Heart rate.** Samples are resampled to a uniform 30 Hz grid (a gap above 250 ms invalidates the window). The POS method (Wang et al., 2017) projects the normalised colour signal onto the plane orthogonal to skin tone, which removes changes in light intensity that affect all channels equally. The pulse signal is filtered to 0.7 to 3 Hz (42 to 180 bpm) and the dominant frequency of a 15 s window becomes the estimate, together with its signal-to-noise ratio. A peak sitting on the band edge is rejected instead of reported.
-4. **Breathing.** The vertical position of the shoulders, normalised by shoulder width, is filtered to the breathing band; its derivative gives the phase and its spectrum gives the rate.
-5. **Confidence.** Face, motion, light, talking, frame timing and SNR combine into a quality score and a confidence level (`high`, `medium`, `low`, `invalid`).
+3. **Heart rate.** Samples are resampled to a uniform 30 Hz grid (a gap of up to 500 ms is bridged by interpolation; a longer one restarts the warm-up). The POS method (Wang et al., 2017) projects the normalised colour signal onto the plane orthogonal to skin tone, which removes changes in light intensity that affect all channels equally. The pulse signal is filtered to 0.7 to 3 Hz (42 to 180 bpm) and the dominant frequency of a 15 s window becomes the estimate, together with its signal-to-noise ratio. A peak sitting on the band edge is rejected instead of reported.
+4. **Breathing.** The vertical position of the shoulders, normalised by shoulder width, is filtered to the breathing band; its spectrum gives the rate, and a sinusoid fitted at that rate over the last cycle gives the phase. A rate is reported only when the signal repeats at its own period, so shoulder noise never becomes a breathing rate.
+5. **Confidence.** Face, motion, light, talking, frame timing and SNR combine into a quality score and a confidence level (`high`, `medium`, `low`, `invalid`). Frames with fast head motion are left out of the heart-rate window.
 
 ## Repository layout
 
@@ -87,6 +87,7 @@ Requirements: Go 1.25 or newer, Node.js 24.15 or newer (Angular 22; `.nvmrc` say
 
 ```bash
 cd engine && go test ./...     # signal core
+cd engine && go run ./cmd/validate   # benchmark on simulated sessions with known heart rate, breathing and phase
 npm ci && npm test             # TypeScript module and demo app
 npm run build                  # emits packages/vitals-web/dist and the demo bundle
 ```
