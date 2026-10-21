@@ -44,8 +44,8 @@ export async function lockExposureWhenStable(
       last = exposure;
       since = t;
     }
-    if (t - since >= EXPOSURE_STABLE_MS) break;
     if (t - start >= EXPOSURE_TIMEOUT_MS) return false;
+    if (t - since >= EXPOSURE_STABLE_MS) break;
     await wait(EXPOSURE_POLL_MS);
   }
   const settings = track.getSettings() as ExposureSettings;

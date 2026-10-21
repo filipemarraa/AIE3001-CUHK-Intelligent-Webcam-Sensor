@@ -231,6 +231,21 @@ describe('lockExposureWhenStable', () => {
     expect(x.apply).not.toHaveBeenCalled();
   });
 
+  it('does not lock once the deadline has passed, even if exposure just settled', async () => {
+    let t = 0;
+    const wait = (): Promise<void> => {
+      t += t >= 5500 ? 1500 : 250;
+      return Promise.resolve();
+    };
+    const steadyFrom = 5500 / 250;
+    const x = track(
+      Array.from({ length: 40 }, (_, k) => (k < steadyFrom ? 200 + k : 999)),
+      manual,
+    );
+    await expect(lockExposureWhenStable(x.track, wait, () => t)).resolves.toBe(false);
+    expect(x.apply).not.toHaveBeenCalled();
+  });
+
   it('needs a full second of steady exposure on the clock before locking', async () => {
     let t = 0;
     const wait = (): Promise<void> => {
