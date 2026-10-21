@@ -5,14 +5,19 @@ import { SAMPLE } from '../engine/layout.js';
 import type { Estimate } from '../types.js';
 import { isFromWorker, type FromWorker } from './protocol.js';
 import {
+  allOrClose,
   createSensor,
+  createWorkerHandler,
   faceOptions,
   poseOptions,
   withCpuFallback,
   type FaceDetector,
+  type Detectors,
+  type FrameCanvas,
   type PoseDetector,
   type SensorSource,
 } from './sensor.worker.js';
+import type { ToWorker } from './protocol.js';
 import type { Box, Point } from './vision/roi.js';
 import { mouthOpening } from './vision/metrics.js';
 
@@ -336,5 +341,212 @@ describe('landmarker options', () => {
     const create = vi.fn((d: 'GPU' | 'CPU') => Promise.resolve(d));
     await expect(withCpuFallback(create)).resolves.toBe('GPU');
     expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } = {}) {
+  const clock = { t: 0 };
+  const posted: FromWorker[] = [];
+  const pushed: Float64Array[] = [];
+  const engine: Engine = {
+    push: (x) => {
+      pushed.push(x.slice());
+    },
+    estimate: () => ({ estimate, pulse: new Float64Array(0) }),
+    reset: () => undefined,
+  };
+  const closeDetectors = vi.fn();
+  const detectors: Detectors = {
+    face: {
+      detect: () => {
+        clock.t += 4;
+        return [makeFace()];
+      },
+    },
+    pose: { detect: () => POSE },
+    close: closeDetectors,
+  };
+  const engineLoads: ReturnType<typeof deferred<Engine>>[] = [];
+  const detectorLoads: ReturnType<typeof deferred<Detectors>>[] = [];
+  const loadEngine = vi.fn(() => {
+    const d = deferred<Engine>();
+    engineLoads.push(d);
+    return d.promise;
+  });
+  const loadDetectors = vi.fn(() => {
+    const d = deferred<Detectors>();
+    detectorLoads.push(d);
+    return d.promise;
+  });
+  const px = image();
+  const draw = vi.fn(() => {
+    clock.t += 10;
+    if (opts.drawThrows?.()) throw new DOMException('detached', 'InvalidStateError');
+  });
+  const canvas: FrameCanvas = { image: {} as VisionImageForTest, draw, pixels: (r) => crop(px, r) };
+  const handle = createWorkerHandler({
+    post: (m) => posted.push(m),
+    canvas: opts.noCanvas ? null : canvas,
+    loadEngine,
+    loadDetectors,
+    now: () => clock.t,
+    width: WIDTH,
+    height: HEIGHT,
+  });
+  const send = (m: ToWorker): void => {
+    handle(m);
+  };
+  const frame = (tMs: number) => {
+    const close = vi.fn();
+    send({ type: 'frame', frame: { close } as unknown as VideoFrame, tMs });
+    return close;
+  };
+  const ready = async (): Promise<void> => {
+    send({ type: 'init', assetsBaseUrl: '/a' });
+    engineLoads.at(-1)?.resolve(engine);
+    detectorLoads.at(-1)?.resolve(detectors);
+    await flush();
+  };
+  return {
+    clock,
+    posted,
+    pushed,
+    engine,
+    detectors,
+    closeDetectors,
+    engineLoads,
+    detectorLoads,
+    loadEngine,
+    loadDetectors,
+    send,
+    frame,
+    ready,
+  };
+}
+
+type VisionImageForTest = FrameCanvas['image'];
+
+describe('createWorkerHandler', () => {
+  it('frees and acknowledges a frame that arrives before ready', () => {
+    const h = handlerSetup();
+    const close = h.frame(0);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(h.posted).toEqual([{ type: 'frameDone' }]);
+  });
+
+  it('loads engine and detectors from the assets base, then draws, closes and samples each frame', async () => {
+    const h = handlerSetup();
+    await h.ready();
+    expect(h.loadEngine).toHaveBeenCalledWith('/a');
+    expect(h.loadDetectors).toHaveBeenCalledWith('/a');
+    expect(h.posted).toEqual([{ type: 'ready' }]);
+    const close = h.frame(100);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(h.pushed).toHaveLength(1);
+    expect(h.pushed[0]?.[SAMPLE.face]).toBe(1);
+    expect(h.posted.at(-1)).toEqual({ type: 'frameDone' });
+  });
+
+  it('closes the frame and posts frameDone when drawing throws, reporting vision_failed once', async () => {
+    const h = handlerSetup({ drawThrows: () => true });
+    await h.ready();
+    const c1 = h.frame(0);
+    const c2 = h.frame(33);
+    expect(c1).toHaveBeenCalledTimes(1);
+    expect(c2).toHaveBeenCalledTimes(1);
+    expect(h.pushed).toHaveLength(0);
+    expect(h.posted).toEqual([
+      { type: 'ready' },
+      { type: 'error', code: 'vision_failed', message: 'detached' },
+      { type: 'frameDone' },
+      { type: 'frameDone' },
+    ]);
+  });
+
+  it('times the whole frame handler, drawing included, for frameCostMs', async () => {
+    const h = handlerSetup();
+    await h.ready();
+    h.clock.t = 900;
+    h.frame(0); // draw 10 ms + detect 4 ms
+    h.clock.t = 990;
+    h.frame(33); // crosses 1 s and reports the previous frames
+    const diag = h.posted.find((m) => m.type === 'diagnostics');
+    expect(diag?.diagnostics.frameCostMs).toBe(14);
+  });
+
+  it('reports wasm_failed, closes loaded detectors and allows a retry', async () => {
+    const h = handlerSetup();
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    h.engineLoads[0]?.reject(new Error('bad wasm'));
+    h.detectorLoads[0]?.resolve(h.detectors);
+    await flush();
+    expect(h.posted).toEqual([{ type: 'error', code: 'wasm_failed', message: 'bad wasm' }]);
+    expect(h.closeDetectors).toHaveBeenCalledTimes(1);
+    await h.ready();
+    expect(h.loadEngine).toHaveBeenCalledTimes(2);
+    expect(h.posted.at(-1)).toEqual({ type: 'ready' });
+  });
+
+  it('reports vision_failed and reuses the loaded engine on retry', async () => {
+    const h = handlerSetup();
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    h.engineLoads[0]?.resolve(h.engine);
+    h.detectorLoads[0]?.reject(new Error('no model'));
+    await flush();
+    expect(h.posted).toEqual([{ type: 'error', code: 'vision_failed', message: 'no model' }]);
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    h.detectorLoads[1]?.resolve(h.detectors);
+    await flush();
+    expect(h.loadEngine).toHaveBeenCalledTimes(1);
+    expect(h.loadDetectors).toHaveBeenCalledTimes(2);
+    expect(h.posted.at(-1)).toEqual({ type: 'ready' });
+  });
+
+  it('ignores a second init while loading and answers ready again once loaded', async () => {
+    const h = handlerSetup();
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    expect(h.loadEngine).toHaveBeenCalledTimes(1);
+    h.engineLoads[0]?.resolve(h.engine);
+    h.detectorLoads[0]?.resolve(h.detectors);
+    await flush();
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    await flush();
+    expect(h.loadEngine).toHaveBeenCalledTimes(1);
+    expect(h.posted).toEqual([{ type: 'ready' }, { type: 'ready' }]);
+  });
+
+  it('reports vision_failed without a 2d canvas and loads nothing', async () => {
+    const h = handlerSetup({ noCanvas: true });
+    h.send({ type: 'init', assetsBaseUrl: '/a' });
+    await flush();
+    expect(h.loadEngine).not.toHaveBeenCalled();
+    expect(h.posted).toEqual([{ type: 'error', code: 'vision_failed', message: '2d context unavailable' }]);
+  });
+});
+
+describe('allOrClose', () => {
+  it('returns every value when all resolve', async () => {
+    await expect(allOrClose([Promise.resolve({ v: 1, close: vi.fn() })])).resolves.toHaveLength(1);
+  });
+
+  it('closes the ones that loaded and rethrows the first failure', async () => {
+    const loaded = { close: vi.fn() };
+    await expect(allOrClose([Promise.resolve(loaded), Promise.reject(new Error('pose failed'))])).rejects.toThrow(
+      'pose failed',
+    );
+    expect(loaded.close).toHaveBeenCalledTimes(1);
   });
 });

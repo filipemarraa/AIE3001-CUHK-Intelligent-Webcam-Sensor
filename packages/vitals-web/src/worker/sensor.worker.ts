@@ -32,7 +32,10 @@ export interface Sensor {
     width: number,
     height: number,
     pixels: (rect: Box) => Uint8ClampedArray,
+    startMs?: number,
   ): void;
+  // A frame that never reached the detectors (e.g. drawing it failed): report once, count its cost, ack it.
+  dropFrame(error: unknown, startMs: number): void;
   reset(): void;
 }
 
@@ -132,9 +135,14 @@ export function createSensor(deps: SensorDeps): Sensor {
     post({ type: 'error', code: kind === 'vision' ? 'vision_failed' : 'wasm_failed', message: errorMessage(e) });
   }
 
+  function done(startMs: number): void {
+    costSum += deps.now() - startMs;
+    costCount++;
+    post({ type: 'frameDone' });
+  }
+
   return {
-    onFrame(source, tMs, width, height, pixels) {
-      const start = deps.now();
+    onFrame(source, tMs, width, height, pixels, startMs = deps.now()) {
       try {
         let x: Float64Array;
         try {
@@ -145,17 +153,18 @@ export function createSensor(deps: SensorDeps): Sensor {
         }
         try {
           deps.engine.push(x);
-          const end = deps.now();
-          costSum += end - start;
-          costCount++;
-          estimateOnNewSecond(end, tMs);
+          estimateOnNewSecond(deps.now(), tMs);
         } catch (e) {
           fail('wasm', e);
         }
       } finally {
         source.close?.();
-        post({ type: 'frameDone' });
+        done(startMs);
       }
+    },
+    dropFrame(error, startMs) {
+      fail('vision', error);
+      done(startMs);
     },
     reset() {
       deps.engine.reset();
@@ -195,17 +204,124 @@ export async function withCpuFallback<T>(create: (delegate: Delegate) => Promise
   }
 }
 
-async function createDetectors(assetsBaseUrl: string): Promise<{ face: FaceDetector; pose: PoseDetector }> {
+export interface Detectors {
+  face: FaceDetector;
+  pose: PoseDetector;
+  close(): void;
+}
+
+// Like Promise.all, but on failure closes whatever did load, so a failed init leaks no landmarker.
+export async function allOrClose<T extends readonly Promise<{ close(): void }>[]>(
+  loads: [...T],
+): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> {
+  const settled = await Promise.allSettled(loads);
+  const failed = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed === undefined) {
+    return settled.map((r) => (r as PromiseFulfilledResult<unknown>).value) as {
+      -readonly [K in keyof T]: Awaited<T[K]>;
+    };
+  }
+  for (const r of settled) if (r.status === 'fulfilled') r.value.close();
+  throw failed.reason;
+}
+
+async function loadDetectors(assetsBaseUrl: string): Promise<Detectors> {
   const vision = await import('@mediapipe/tasks-vision');
   // useModule = true: the classic loader fails inside a module worker with "ModuleFactory not set." (Task 7 spike).
   const fileset = await vision.FilesetResolver.forVisionTasks(`${assetsBaseUrl}/mediapipe/wasm`, true);
-  const [face, pose] = await Promise.all([
+  const [face, pose] = await allOrClose([
     withCpuFallback((d) => vision.FaceLandmarker.createFromOptions(fileset, faceOptions(assetsBaseUrl, d))),
     withCpuFallback((d) => vision.PoseLandmarker.createFromOptions(fileset, poseOptions(assetsBaseUrl, d))),
   ]);
   return {
     face: { detect: (img, tMs) => face.detectForVideo(img, tMs).faceLandmarks },
     pose: { detect: (img, tMs) => pose.detectForVideo(img, tMs).landmarks[0] ?? null },
+    close() {
+      face.close();
+      pose.close();
+    },
+  };
+}
+
+export interface FrameCanvas {
+  image: VisionImage;
+  draw: (frame: VideoFrame) => void;
+  pixels: (rect: Box) => Uint8ClampedArray;
+}
+
+export interface WorkerDeps {
+  post: (m: FromWorker) => void;
+  canvas: FrameCanvas | null;
+  loadEngine: (assetsBaseUrl: string) => Promise<Engine>;
+  loadDetectors: (assetsBaseUrl: string) => Promise<Detectors>;
+  now: () => number;
+  width: number;
+  height: number;
+}
+
+export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
+  const post = checkedPost(deps.post);
+  const { canvas, width, height } = deps;
+  let sensor: Sensor | null = null;
+  let loading = false;
+  // The Go runtime has no close; once loaded it is kept and reused by a retried init.
+  let engine: Engine | null = null;
+
+  async function init(assetsBaseUrl: string): Promise<void> {
+    if (sensor !== null) {
+      post({ type: 'ready' });
+      return;
+    }
+    if (loading) return;
+    if (canvas === null) {
+      post({ type: 'error', code: 'vision_failed', message: '2d context unavailable' });
+      return;
+    }
+    loading = true;
+    const [e, d] = await Promise.allSettled([
+      engine ?? deps.loadEngine(assetsBaseUrl),
+      deps.loadDetectors(assetsBaseUrl),
+    ]);
+    loading = false;
+    if (e.status === 'fulfilled') engine = e.value;
+    if (e.status === 'rejected') {
+      if (d.status === 'fulfilled') d.value.close();
+      post({ type: 'error', code: 'wasm_failed', message: errorMessage(e.reason) });
+      return;
+    }
+    if (d.status === 'rejected') {
+      post({ type: 'error', code: 'vision_failed', message: errorMessage(d.reason) });
+      return;
+    }
+    sensor = createSensor({ face: d.value.face, pose: d.value.pose, engine: e.value, post: deps.post, now: deps.now });
+    post({ type: 'ready' });
+  }
+
+  function frame(f: VideoFrame, tMs: number): void {
+    const startMs = deps.now();
+    if (sensor === null || canvas === null) {
+      f.close();
+      post({ type: 'frameDone' });
+      return;
+    }
+    let drawError: unknown = null;
+    let drawn = false;
+    try {
+      canvas.draw(f);
+      drawn = true;
+    } catch (e) {
+      drawError = e;
+    } finally {
+      f.close();
+    }
+    if (drawn) sensor.onFrame(canvas.image, tMs, width, height, canvas.pixels, startMs);
+    else sensor.dropFrame(drawError, startMs);
+  }
+
+  return (m) => {
+    if (m.type === 'init') void init(m.assetsBaseUrl);
+    else if (m.type === 'reset') sensor?.reset();
+    else frame(m.frame, m.tMs);
   };
 }
 
@@ -214,50 +330,33 @@ interface WorkerScope {
   onmessage: ((e: MessageEvent<ToWorker>) => void) | null;
 }
 
-function startWorker(scope: WorkerScope): void {
-  const raw = (m: FromWorker): void => {
-    scope.postMessage(m);
+function offscreenCanvas(): FrameCanvas | null {
+  const image = new OffscreenCanvas(FRAME_WIDTH, FRAME_HEIGHT);
+  const ctx = image.getContext('2d', { willReadFrequently: true });
+  if (ctx === null) return null;
+  return {
+    image,
+    draw: (frame) => {
+      ctx.drawImage(frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+    },
+    pixels: (r) => ctx.getImageData(r.x, r.y, r.w, r.h).data,
   };
-  const post = checkedPost(raw);
-  const canvas = new OffscreenCanvas(FRAME_WIDTH, FRAME_HEIGHT);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  let sensor: Sensor | null = null;
-  let initialising = false;
+}
 
-  async function init(assetsBaseUrl: string): Promise<void> {
-    if (initialising) return;
-    initialising = true;
-    const [engine, detectors] = await Promise.allSettled([
-      loadEngine(`${assetsBaseUrl}/engine.wasm`, `${assetsBaseUrl}/wasm_exec.js`),
-      createDetectors(assetsBaseUrl),
-    ]);
-    if (engine.status === 'rejected') {
-      post({ type: 'error', code: 'wasm_failed', message: errorMessage(engine.reason) });
-      return;
-    }
-    if (detectors.status === 'rejected' || ctx === null) {
-      const reason: unknown = detectors.status === 'rejected' ? detectors.reason : '2d context unavailable';
-      post({ type: 'error', code: 'vision_failed', message: errorMessage(reason) });
-      return;
-    }
-    sensor = createSensor({ ...detectors.value, engine: engine.value, post: raw, now: () => performance.now() });
-    post({ type: 'ready' });
-  }
-
+function startWorker(scope: WorkerScope): void {
+  const handle = createWorkerHandler({
+    post: (m) => {
+      scope.postMessage(m);
+    },
+    canvas: offscreenCanvas(),
+    loadEngine: (base) => loadEngine(`${base}/engine.wasm`, `${base}/wasm_exec.js`),
+    loadDetectors,
+    now: () => performance.now(),
+    width: FRAME_WIDTH,
+    height: FRAME_HEIGHT,
+  });
   scope.onmessage = (e) => {
-    const m = e.data;
-    if (m.type === 'init') {
-      void init(m.assetsBaseUrl);
-    } else if (m.type === 'reset') {
-      sensor?.reset();
-    } else if (sensor === null || ctx === null) {
-      m.frame.close();
-      post({ type: 'frameDone' });
-    } else {
-      ctx.drawImage(m.frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-      m.frame.close();
-      sensor.onFrame(canvas, m.tMs, FRAME_WIDTH, FRAME_HEIGHT, (r) => ctx.getImageData(r.x, r.y, r.w, r.h).data);
-    }
+    handle(e.data);
   };
 }
 
