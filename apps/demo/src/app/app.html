@@ -1,0 +1,9 @@
+<app-shell />
+<main>
+  <video #video class="self-view" playsinline muted [hidden]="vitals.screen() === 'welcome'"></video>
+  @switch (vitals.screen()) {
+    @case ('welcome') {
+      <app-welcome [video]="video" />
+    }
+  }
+</main>

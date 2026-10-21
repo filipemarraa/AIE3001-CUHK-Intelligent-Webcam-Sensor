@@ -37,7 +37,7 @@ jobs:
           go-version-file: engine/go.mod
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: sudo apt-get install -y brotli
       - run: ./scripts/build-wasm.sh
@@ -58,12 +58,34 @@ jobs:
           go-version-file: engine/go.mod
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: sudo apt-get install -y brotli
       - run: npm ci
+      # apps/demo resolves vitals-web through its dist/ (types for lint and typecheck, code for ng test).
+      - run: npm run build --workspace packages/vitals-web
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
+
+  # Angular 22 needs Node >= 24.15. The worker bundle needs vitals-web/dist, and the build copies the wasm and MediaPipe assets.
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: sudo apt-get install -y brotli
+      - run: npm ci
+      - run: npm run build:wasm --workspace packages/vitals-web
+      - run: npm run build --workspace packages/vitals-web
+      - run: ./scripts/fetch-assets.sh
+      - run: npm run build --workspace apps/demo
+      - run: npm test --workspace apps/demo

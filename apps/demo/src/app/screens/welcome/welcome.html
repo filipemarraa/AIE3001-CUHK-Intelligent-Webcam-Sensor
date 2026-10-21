@@ -1,0 +1,17 @@
+<section class="welcome" aria-labelledby="welcome-title">
+  <h1 id="welcome-title">A guided breathing exercise</h1>
+  <p>
+    With your permission, this page uses your camera to estimate your <strong>heart rate</strong> and your
+    <strong>breathing</strong> rate while you follow a slow breathing pattern.
+  </p>
+  <ul class="promises">
+    <li>No recording: video frames are analysed and discarded at once.</li>
+    <li>Nothing leaves this device: nothing is uploaded and nothing is stored.</li>
+    <li>No identification: the face tracker finds where your skin is, not who you are.</li>
+  </ul>
+  <p class="notice">Not a medical device. These are wellness estimates for a breathing exercise, not a diagnosis.</p>
+  @if (errorText(); as text) {
+    <p class="error" role="alert">{{ text }}</p>
+  }
+  <button type="button" class="primary" [disabled]="vitals.cameraOn()" (click)="turnOnCamera()">Turn on camera</button>
+</section>

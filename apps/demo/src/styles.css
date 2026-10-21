@@ -1,0 +1,121 @@
+/* The only stylesheet: components have no styles, so Angular never injects a <style> tag (CSP style-src 'self'). */
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f4;
+  --fg: #1c1c1a;
+  --muted: #5c5c57;
+  --accent: #2f6f62;
+  --accent-fg: #ffffff;
+  --danger: #a3341f;
+  --on: #c0392b;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --fg: #ecece8;
+    --muted: #a4a49d;
+    --accent: #6cc2ad;
+    --accent-fg: #0d1f1b;
+    --danger: #ff8a73;
+    --on: #ff6b5a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.shell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
+}
+
+.camera-indicator {
+  margin: 0;
+  color: var(--muted);
+}
+
+.camera-indicator::before {
+  content: '';
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.camera-indicator.on {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.camera-indicator.on::before {
+  background: var(--on);
+}
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.self-view {
+  width: 100%;
+  border-radius: 0.75rem;
+  transform: scaleX(-1);
+}
+
+.welcome h1 {
+  font-size: 1.75rem;
+  margin-top: 0;
+}
+
+.promises {
+  padding-left: 1.25rem;
+}
+
+.notice {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  background: transparent;
+  color: var(--fg);
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 1.1rem;
+  padding: 0.75rem 1.5rem;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
