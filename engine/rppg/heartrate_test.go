@@ -37,6 +37,9 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 				if math.Abs(hr.BPM-bpm) > 1.5 {
 					t.Fatalf("BPM = %.2f, want %v ± 1.5", hr.BPM, bpm)
 				}
+				if len(hr.Pulse) == 0 {
+					t.Fatal("Pulse is empty, want the band-passed pulse")
+				}
 			})
 		}
 	}
