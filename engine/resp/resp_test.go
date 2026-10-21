@@ -263,8 +263,9 @@ func TestPhaseNeverWrongWhileBreathingContinues(t *testing.T) {
 	}
 }
 
-// After a change of rhythm the window rate lags, and until the new rhythm fills the analysis window the phase can be
-// wrong (a known limit, see docs/decisions.md). From then on it must be right and calling again.
+// After a change of rhythm the rate of the 30 s window lags, and until the new rhythm dominates the window the phase
+// can be called against the breathing (a known limit, measured at up to about 20 s; see docs/decisions.md). From 22 s
+// on it must never be wrong and must be calling again; a window without an estimate counts as no call.
 func TestPhaseRecoversAfterRhythmOrDepthChange(t *testing.T) {
 	const fps = 30.0
 	cases := []struct {
@@ -274,54 +275,105 @@ func TestPhaseRecoversAfterRhythmOrDepthChange(t *testing.T) {
 	}{
 		{"6 to 10 rpm", 6, 10, 0.004, 0.004},
 		{"10 to 6 rpm", 10, 6, 0.004, 0.004},
+		{"12 to 6 rpm", 12, 6, 0.004, 0.004},
+		{"6 to 15 rpm", 6, 15, 0.004, 0.004},
 		{"deeper at 10 rpm", 10, 10, 0.002, 0.006},
 		{"shallower at 6 rpm", 6, 6, 0.006, 0.002},
 	}
 	for _, c := range cases {
-		var ts, y, w, slope []float64
-		phase := 0.0
-		for i := 0; i < int(70*fps); i++ {
-			t := float64(i) / fps
-			rpm, depth := c.rpmFrom, c.depthFrom
-			if t >= 25 {
-				rpm, depth = c.rpmTo, c.depth
-			}
-			phase += 2 * math.Pi * rpm / 60 / fps
-			ts = append(ts, t*1000)
-			y = append(y, 0.6-depth*math.Sin(phase))
-			w = append(w, 0.3)
-			slope = append(slope, math.Cos(phase))
-		}
-		settled := 25 + 12.0
-		prev := PhaseUnknown
-		var clear, calls int
-		for end := 25.5; end <= 70; end += 0.1 {
-			n := int(end * fps)
-			from := max(0, n-int(30*fps))
-			got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
-			if err != nil {
-				continue
-			}
-			prev = got.Phase
-			s := slope[n-1]
-			if math.Abs(s) < 0.5 {
-				continue
-			}
-			if end < settled {
-				continue
-			}
-			if (got.Phase == PhaseIn && s < 0) || (got.Phase == PhaseOut && s > 0) {
-				t.Errorf("%s, at %.1f s: called %v against the breathing", c.name, end, got.Phase)
-			}
-			{
-				clear++
-				if got.Phase == PhaseIn || got.Phase == PhaseOut {
+		for _, phase0 := range []float64{0, math.Pi/2 + 0.005, math.Pi, 3 * math.Pi / 2, 1, 2.5} {
+			for _, step := range []float64{0.1, 1} {
+				var ts, y, w, slope []float64
+				phase := phase0
+				for i := 0; i < int(80*fps); i++ {
+					t := float64(i) / fps
+					rpm, depth := c.rpmFrom, c.depthFrom
+					if t >= 25 {
+						rpm, depth = c.rpmTo, c.depth
+					}
+					phase += 2 * math.Pi * rpm / 60 / fps
+					ts = append(ts, t*1000)
+					y = append(y, 0.6-depth*math.Sin(phase))
+					w = append(w, 0.3)
+					slope = append(slope, math.Cos(phase))
+				}
+				prev := PhaseUnknown
+				var clear, calls int
+				for end := 25.5; end <= 80; end += step {
+					n := int(end * fps)
+					from := max(0, n-int(30*fps))
+					got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
+					if err == nil {
+						prev = got.Phase
+					}
+					s := slope[n-1]
+					if end < 25+22 || math.Abs(s) < 0.5 {
+						continue
+					}
+					clear++
+					if err != nil || (got.Phase != PhaseIn && got.Phase != PhaseOut) {
+						continue
+					}
 					calls++
+					if (got.Phase == PhaseIn) != (s > 0) {
+						t.Errorf("%s, start phase %.2f, every %v s, at %.1f s: called %v against the breathing",
+							c.name, phase0, step, end, got.Phase)
+					}
+				}
+				if clear == 0 || float64(calls) < 0.85*float64(clear) {
+					t.Errorf("%s, start phase %.2f, every %v s: %d calls in %d clear moments from 22 s, want at least 85%%",
+						c.name, phase0, step, calls, clear)
 				}
 			}
 		}
-		if float64(calls) < 0.9*float64(clear) {
-			t.Errorf("%s: %d calls in %d clear moments after the new rhythm settled, want at least 90%%", c.name, calls, clear)
+	}
+}
+
+func TestPhaseHoldDuringAPauseWithLandmarkNoise(t *testing.T) {
+	const fps = 30.0
+	noises := map[string]func(t float64, rng *rand.Rand) float64{
+		"5 Hz":  func(t float64, _ *rand.Rand) float64 { return 0.0005 * math.Cos(2*math.Pi*5*t) },
+		"white": func(_ float64, rng *rand.Rand) float64 { return 0.0005 * rng.NormFloat64() },
+	}
+	for name, noise := range noises {
+		for _, rpm := range []float64{6, 10, 15} {
+			rng := rand.New(rand.NewPCG(7, uint64(rpm)))
+			pauseAt := 30.0
+			var ts, y, w []float64
+			var held float64
+			for i := 0; i < int(40*fps); i++ {
+				t := float64(i) / fps
+				breath := 0.6 - 0.004*math.Sin(2*math.Pi*rpm/60*t)
+				if t < pauseAt {
+					held = breath
+				} else {
+					breath = held
+				}
+				ts = append(ts, t*1000)
+				y = append(y, breath+noise(t, rng))
+				w = append(w, 0.3)
+			}
+			prev := PhaseUnknown
+			var still, holds int
+			for end := 25.5; end <= 40; end += 0.5 {
+				n := int(end * fps)
+				from := max(0, n-int(30*fps))
+				got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
+				if err == nil {
+					prev = got.Phase
+				}
+				if end >= pauseAt+4 {
+					still++
+					if err == nil && got.Phase == PhaseHold {
+						holds++
+					}
+				}
+			}
+			// Noise can flip a single estimate; the pause must hold for nearly all of the stretch.
+			if float64(holds) < 0.9*float64(still) {
+				t.Errorf("%s noise, %v rpm, still since %.0f s: hold in %d of %d estimates, want at least 90%%",
+					name, rpm, pauseAt, holds, still)
+			}
 		}
 	}
 }

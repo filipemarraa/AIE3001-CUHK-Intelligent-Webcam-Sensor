@@ -3,6 +3,7 @@ package resp
 import (
 	"errors"
 	"math"
+	"slices"
 
 	"github.com/filipemarraa/AIE3001-CUHK-Intelligent-Webcam-Sensor/engine/dsp"
 )
@@ -131,6 +132,11 @@ func phase(x, raw []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	// Only a stretch that is actually still can be a pause, and the breathing is fitted before it, so a long pause
 	// does not leak into the reference it is compared with.
 	w := stillSamples(x, raw, m, heartHz, cfg)
+	// A pause already called holds while the shoulders stay still for longer than any turning point does, so one noisy
+	// window cannot flip it back.
+	if prev == PhaseHold && w >= 2*m {
+		return PhaseHold
+	}
 	if w >= m && len(x) > w+fit.n {
 		before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
 		if ok && paused(x[len(x)-w:], before.next(w), before.amp, heartHz, cfg) {
@@ -154,12 +160,16 @@ func stillSamples(x, raw []float64, m int, heartHz float64, cfg Config) int {
 		ss += (v - mean) * (v - mean)
 	}
 	amp := math.Sqrt(2 * ss / float64(len(x)))
+	// Landmark noise must not count as motion: what is left after the line may reach a few times the noise floor,
+	// and the line itself may tilt by a few times what noise alone tilts a line of n samples.
+	noise := noiseFloor(withoutHeartbeat(raw, heartHz, cfg.SampleRateHz))
+	limit := max(stillResidual*amp, 3*noise)
 	step := max(1, int(math.Round(cfg.SampleRateHz/2)))
 	still := 0
 	for n := m; n <= len(raw)/2; n += step {
 		seg := raw[len(raw)-n:]
 		resid, drift := lineFit(seg, heartHz, cfg.SampleRateHz)
-		if math.Sqrt(resid/float64(n)) > stillResidual*amp || math.Abs(drift) > stillDrift*amp {
+		if math.Sqrt(resid/float64(n)) > limit || math.Abs(drift) > max(stillDrift*amp, 3*noise*math.Sqrt(12/float64(n))) {
 			break
 		}
 		still = n
@@ -171,6 +181,38 @@ const (
 	stillResidual = 0.1
 	stillDrift    = 0.1
 )
+
+// withoutHeartbeat removes the heartbeat sinusoid from x, so the noise floor does not count it as noise.
+func withoutHeartbeat(x []float64, heartHz, fs float64) []float64 {
+	if heartHz <= 0 {
+		return x
+	}
+	cols := heartColumns(len(x), heartHz, fs, false)
+	coef, _ := leastSquares(x, cols)
+	if coef == nil {
+		return x
+	}
+	out := make([]float64, len(x))
+	for k, v := range x {
+		out[k] = v - coef[1]*cols[1][k] - coef[2]*cols[2][k]
+	}
+	return out
+}
+
+// noiseFloor estimates the per-sample noise from second differences, which cancel the slow breathing; the median
+// keeps a pause or a turn from inflating it.
+func noiseFloor(x []float64) float64 {
+	if len(x) < 3 {
+		return 0
+	}
+	d := make([]float64, 0, len(x)-2)
+	for i := 2; i < len(x); i++ {
+		d = append(d, math.Abs(x[i]-2*x[i-1]+x[i-2]))
+	}
+	slices.Sort(d)
+	// For white noise the second difference has six times the variance; 1.4826 turns a median deviation into sigma.
+	return 1.4826 * d[len(d)/2] / math.Sqrt(6)
+}
 
 // lineFit fits a straight line plus the heartbeat sinusoid to x and returns the squared error left and how far the
 // line moves across x.
