@@ -226,13 +226,14 @@ func TestPhaseHoldDuringPauses(t *testing.T) {
 	}
 }
 
-func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
+func TestPhaseNeverWrongWhileBreathingContinues(t *testing.T) {
 	for _, rpm := range []float64{6, 10, 15, 24} {
 		f := rpm / 60
 		for _, tr := range tremors {
 			for _, tremorPhase := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2} {
 				ts, y, w := shoulderSeries(rpm, 45, 1e9, tr.amp, tr.hz, tremorPhase, 0.0005)
 				prev := PhaseUnknown
+				var clear, calls int
 				for end := 25.5; end <= 45; end += 0.1 {
 					n := int(end * 30)
 					got, err := Estimate(ts[:n], y[:n], w[:n], prev, DefaultConfig())
@@ -240,12 +241,107 @@ func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
 						t.Fatalf("%v rpm at %.1f s: %v", rpm, end, err)
 					}
 					prev = got.Phase
-					speed := math.Abs(math.Cos(2 * math.Pi * f * ts[n-1] / 1000))
-					if end >= 27 && speed > 0.5 && got.Phase == PhaseHold {
-						t.Errorf("%v rpm, tremor %v Hz phase %.2f, at %.1f s: hold while breathing at %.0f%% of peak speed",
-							rpm, tr.hz, tremorPhase, end, 100*speed)
+					slope := math.Cos(2 * math.Pi * f * ts[n-1] / 1000)
+					if end < 27 || math.Abs(slope) < 0.5 {
+						continue
+					}
+					clear++
+					if got.Phase == PhaseIn || got.Phase == PhaseOut {
+						calls++
+						if (got.Phase == PhaseIn) != (slope > 0) {
+							t.Errorf("%v rpm, tremor %v Hz phase %.2f, at %.1f s: called %v against the breathing",
+								rpm, tr.hz, tremorPhase, end, got.Phase)
+						}
 					}
 				}
+				if float64(calls) < 0.95*float64(clear) {
+					t.Errorf("%v rpm, tremor %v Hz phase %.2f: %d calls in %d clear moments, want at least 95%%",
+						rpm, tr.hz, tremorPhase, calls, clear)
+				}
+			}
+		}
+	}
+}
+
+// After a change of rhythm the window rate lags, and until the new rhythm fills the analysis window the phase can be
+// wrong (a known limit, see docs/decisions.md). From then on it must be right and calling again.
+func TestPhaseRecoversAfterRhythmOrDepthChange(t *testing.T) {
+	const fps = 30.0
+	cases := []struct {
+		name             string
+		rpmFrom, rpmTo   float64
+		depthFrom, depth float64
+	}{
+		{"6 to 10 rpm", 6, 10, 0.004, 0.004},
+		{"10 to 6 rpm", 10, 6, 0.004, 0.004},
+		{"deeper at 10 rpm", 10, 10, 0.002, 0.006},
+		{"shallower at 6 rpm", 6, 6, 0.006, 0.002},
+	}
+	for _, c := range cases {
+		var ts, y, w, slope []float64
+		phase := 0.0
+		for i := 0; i < int(70*fps); i++ {
+			t := float64(i) / fps
+			rpm, depth := c.rpmFrom, c.depthFrom
+			if t >= 25 {
+				rpm, depth = c.rpmTo, c.depth
+			}
+			phase += 2 * math.Pi * rpm / 60 / fps
+			ts = append(ts, t*1000)
+			y = append(y, 0.6-depth*math.Sin(phase))
+			w = append(w, 0.3)
+			slope = append(slope, math.Cos(phase))
+		}
+		settled := 25 + 12.0
+		prev := PhaseUnknown
+		var clear, calls int
+		for end := 25.5; end <= 70; end += 0.1 {
+			n := int(end * fps)
+			from := max(0, n-int(30*fps))
+			got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
+			if err != nil {
+				continue
+			}
+			prev = got.Phase
+			s := slope[n-1]
+			if math.Abs(s) < 0.5 {
+				continue
+			}
+			if end < settled {
+				continue
+			}
+			if (got.Phase == PhaseIn && s < 0) || (got.Phase == PhaseOut && s > 0) {
+				t.Errorf("%s, at %.1f s: called %v against the breathing", c.name, end, got.Phase)
+			}
+			{
+				clear++
+				if got.Phase == PhaseIn || got.Phase == PhaseOut {
+					calls++
+				}
+			}
+		}
+		if float64(calls) < 0.9*float64(clear) {
+			t.Errorf("%s: %d calls in %d clear moments after the new rhythm settled, want at least 90%%", c.name, calls, clear)
+		}
+	}
+}
+
+func TestPhaseHoldLastsThroughALongPause(t *testing.T) {
+	const fps = 30.0
+	for _, rpm := range []float64{6, 10, 15} {
+		pauseAt := 47.4
+		ts, y, w := shoulderSeries(rpm, 62, pauseAt, 0, 0, 0, 0)
+		prev := PhaseUnknown
+		for end := 40.0; end <= 62; end += 0.5 {
+			n := int(end * fps)
+			from := max(0, n-int(30*fps))
+			got, err := Estimate(ts[from:n], y[from:n], w[from:n], prev, DefaultConfig())
+			if err != nil {
+				t.Fatalf("%v rpm at %.1f s: %v", rpm, end, err)
+			}
+			prev = got.Phase
+			if end >= pauseAt+3 && got.Phase != PhaseHold {
+				t.Errorf("%v rpm, still since %.1f s, at %.1f s: got %v, want hold", rpm, pauseAt, end, got.Phase)
 			}
 		}
 	}

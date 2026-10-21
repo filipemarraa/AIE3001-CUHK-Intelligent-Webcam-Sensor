@@ -108,7 +108,7 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 
 	return Breath{
 		RPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Periodicity: periodicity,
-		Phase: phase(detrended, peak.FreqHz, prev, cfg),
+		Phase: phase(detrended, grid[0], peak.FreqHz, prev, cfg),
 	}, nil
 }
 
@@ -116,7 +116,7 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 // that rejects faster motion such as the heartbeat and does not ring at the window edge like a band-pass filter.
 // Turning points come out as hold through the hysteresis on that direction. A real pause is a recent window that does
 // not follow the breathing fitted just before it: fitting over the window itself would let the fit bend to the pause.
-func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
+func phase(x, raw []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	fit, ok := fitSinusoid(x, freqHz, cfg.SampleRateHz)
 	if !ok {
 		return PhaseHold
@@ -128,9 +128,10 @@ func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
 		windowS = max(windowS, 2/heartHz)
 	}
 	m := max(3, int(math.Round(windowS*cfg.SampleRateHz)))
-	// A long pause would leak into the breathing fitted just before the window; fit before the still stretch instead.
-	w := max(m, stillSamples(x, m, heartHz, cfg))
-	if len(x) > w+fit.n {
+	// Only a stretch that is actually still can be a pause, and the breathing is fitted before it, so a long pause
+	// does not leak into the reference it is compared with.
+	w := stillSamples(x, raw, m, heartHz, cfg)
+	if w >= m && len(x) > w+fit.n {
 		before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
 		if ok && paused(x[len(x)-w:], before.next(w), before.amp, heartHz, cfg) {
 			return PhaseHold
@@ -139,10 +140,11 @@ func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	return nextPhase(fit.direction(), prev, cfg)
 }
 
-// stillSamples is the length of the trailing stretch of x, at least m samples and at most half of x, over which the
+// stillSamples is the length of the trailing stretch, at least m samples and at most half the window, over which the
 // shoulders hold still: what is left after a straight line and the heartbeat is small next to the breathing amplitude
-// of the whole window, and so is the drift of that line. It returns 0 when the last m samples already move.
-func stillSamples(x []float64, m int, heartHz float64, cfg Config) int {
+// of the whole window (from the detrended x), and so is the drift of that line. Stillness is judged on raw, before the
+// detrend, which would tilt a level stretch. It returns 0 when the last m samples already move.
+func stillSamples(x, raw []float64, m int, heartHz float64, cfg Config) int {
 	var mean, ss float64
 	for _, v := range x {
 		mean += v
@@ -154,8 +156,8 @@ func stillSamples(x []float64, m int, heartHz float64, cfg Config) int {
 	amp := math.Sqrt(2 * ss / float64(len(x)))
 	step := max(1, int(math.Round(cfg.SampleRateHz/2)))
 	still := 0
-	for n := m; n <= len(x)/2; n += step {
-		seg := x[len(x)-n:]
+	for n := m; n <= len(raw)/2; n += step {
+		seg := raw[len(raw)-n:]
 		resid, drift := lineFit(seg, heartHz, cfg.SampleRateHz)
 		if math.Sqrt(resid/float64(n)) > stillResidual*amp || math.Abs(drift) > stillDrift*amp {
 			break
