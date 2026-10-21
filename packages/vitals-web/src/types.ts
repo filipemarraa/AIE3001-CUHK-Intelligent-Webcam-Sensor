@@ -36,15 +36,29 @@ export interface ExerciseSummary {
   method: Method;
 }
 
+// Capture improvements under evaluation; each stays off until it beats the current pipeline on recorded sessions.
+export interface CaptureOptions {
+  // Find face landmarks every N frames and read the skin colour on every frame.
+  landmarkEvery?: number;
+  // Leave out saturated pixels and pixels far from the median brightness of each skin region.
+  robustPixels?: boolean;
+  // Lock exposure and white balance once the camera has settled, where the camera allows it.
+  lockExposure?: boolean;
+}
+
 export interface VitalsOptions {
   assetsBaseUrl: string;
   method?: Method;
+  capture?: CaptureOptions;
+  // For validation recordings: each second, the numeric samples (layout SAMPLE) behind the estimate. Never pixels.
+  onSamples?: (rows: number[][]) => void;
 }
 
 export interface Diagnostics {
   frameCostMs: number;
   droppedFrames: number;
   pulse: number[];
+  exposureLocked?: boolean;
 }
 
 export interface VitalsEvents {

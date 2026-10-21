@@ -92,3 +92,42 @@ describe('meanRgb', () => {
     expect(meanRgb(image(), 4, [{ x: 0, y: 0, w: 0, h: 3 }])).toBeNull();
   });
 });
+
+describe('meanRgb with robust pixels', () => {
+  function row(colours: (readonly [number, number, number])[]): Uint8ClampedArray {
+    const px = new Uint8ClampedArray(colours.length * 4);
+    colours.forEach(([r, g, b], i) => {
+      px.set([r, g, b, 255], i * 4);
+    });
+    return px;
+  }
+  const skin = [180, 140, 120] as const;
+
+  it('leaves out saturated pixels and pixels far from the median brightness of the region', () => {
+    const px = row([skin, skin, skin, skin, skin, skin, [30, 25, 20], [35, 28, 22], [255, 250, 245], [255, 200, 180]]);
+    const box = [{ x: 0, y: 0, w: 10, h: 1 }];
+    expect(meanRgb(px, 10, box)?.r).not.toBeCloseTo(180, 0);
+    expect(meanRgb(px, 10, box, { robust: true })).toMatchObject({ r: 180, g: 140, b: 120 });
+  });
+
+  it('keeps every pixel of dark skin with a normal spread', () => {
+    const px = row([
+      [62, 41, 31],
+      [58, 39, 29],
+      [60, 40, 30],
+      [64, 42, 32],
+      [56, 38, 28],
+    ]);
+    const box = [{ x: 0, y: 0, w: 5, h: 1 }];
+    expect(meanRgb(px, 5, box, { robust: true })).toEqual(meanRgb(px, 5, box));
+  });
+
+  it('falls back to every pixel when the filter would leave none', () => {
+    const px = row([
+      [255, 255, 255],
+      [255, 255, 255],
+    ]);
+    const box = [{ x: 0, y: 0, w: 2, h: 1 }];
+    expect(meanRgb(px, 2, box, { robust: true })).toEqual(meanRgb(px, 2, box));
+  });
+});

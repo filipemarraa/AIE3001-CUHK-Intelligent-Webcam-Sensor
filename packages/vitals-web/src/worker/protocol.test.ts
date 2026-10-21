@@ -22,6 +22,21 @@ describe('isFromWorker', () => {
       isFromWorker({ type: 'diagnostics', diagnostics: { frameCostMs: 3, droppedFrames: 0, pulse: [0.1, 0.2] } }),
     ).toBe(true);
     expect(isFromWorker({ type: 'error', code: 'wasm_failed', message: 'x' })).toBe(true);
+    expect(isFromWorker({ type: 'samples', rows: [[1, 2, 3]] })).toBe(true);
+  });
+
+  it('rejects recorded samples that carry a typed array', () => {
+    expect(isFromWorker({ type: 'samples', rows: [new Float64Array(3)] })).toBe(false);
+  });
+
+  it('accepts recorded samples only as rows of finite numbers', () => {
+    expect(isFromWorker({ type: 'samples' })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: 'x' })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [['1', 2]] })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [[{ r: 1 }]] })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [[1, Number.NaN]] })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [[1, Number.POSITIVE_INFINITY]] })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [] })).toBe(true);
   });
 
   it('rejects unknown type and non-objects', () => {

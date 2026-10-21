@@ -28,7 +28,13 @@ export class FakeStream {
   }
 }
 
-type FrameCallback = (now: number, metadata: { captureTime?: number; mediaTime: number }) => void;
+export interface FakeFrameMetadata {
+  captureTime?: number;
+  mediaTime?: number;
+  presentedFrames?: number;
+}
+
+type FrameCallback = (now: number, metadata: FakeFrameMetadata) => void;
 
 export class FakeVideo {
   srcObject: unknown = null;
@@ -47,10 +53,11 @@ export class FakeVideo {
   });
 
   // Presents one video frame: runs the callbacks registered so far, like the browser does.
-  present(captureTime?: number): void {
+  present(at?: number | FakeFrameMetadata): void {
     const pending = [...this.callbacks.values()];
     this.callbacks.clear();
-    const metadata = captureTime === undefined ? { mediaTime: 0 } : { captureTime, mediaTime: 0 };
+    const metadata: FakeFrameMetadata =
+      typeof at === 'object' ? at : at === undefined ? { mediaTime: 0 } : { captureTime: at, mediaTime: 0 };
     for (const cb of pending) cb(0, metadata);
   }
 

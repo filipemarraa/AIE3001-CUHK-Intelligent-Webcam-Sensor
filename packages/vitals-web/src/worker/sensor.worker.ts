@@ -22,6 +22,10 @@ export interface SensorDeps {
   engine: Engine;
   post: (m: FromWorker) => void;
   now: () => number;
+  record?: boolean;
+  // Find landmarks every N frames and read the skin colour on every frame from the last skin region.
+  landmarkEvery?: number;
+  robustPixels?: boolean;
 }
 
 export interface Sensor {
@@ -41,6 +45,8 @@ export interface Sensor {
 
 // Pose at 15 Hz is enough for breathing (≤ 0.5 Hz) and halves the vision cost per frame.
 const POSE_EVERY_N_FRAMES = 2;
+// Reused landmarks older than this are not trusted: the head may have moved out of the old skin region.
+const MAX_LANDMARK_AGE_MS = 250;
 const FRAME_WIDTH = 640;
 const FRAME_HEIGHT = 480;
 
@@ -68,12 +74,13 @@ function skinColour(
   width: number,
   height: number,
   pixels: (rect: Box) => Uint8ClampedArray,
+  robust: boolean,
 ): ReturnType<typeof meanRgb> {
   const boxes = roiBoxes(faces, width, height);
   if (boxes.length === 0) return null;
   const rect = boundingBox(boxes);
   const local = boxes.map((b) => ({ x: b.x - rect.x, y: b.y - rect.y, w: b.w, h: b.h }));
-  return meanRgb(pixels(rect), rect.w, local);
+  return meanRgb(pixels(rect), rect.w, local, { robust });
 }
 
 function errorMessage(e: unknown): string {
@@ -84,14 +91,34 @@ export function createSensor(deps: SensorDeps): Sensor {
   const post = checkedPost(deps.post);
   let frames = 0;
   let prevFace: Point[] | null = null;
+  let landmarks: { face: Point[]; tMs: number; frame: number; motion: number } | null = null;
+  const every = Math.max(1, Math.round(deps.landmarkEvery ?? 1));
   let held: { y: number; w: number } | null = null;
   let second: number | null = null;
   let costSum = 0;
   let costCount = 0;
+  const recorded: number[][] = [];
   const reported = { vision: false, wasm: false };
 
-  function sample(img: VisionImage, tMs: number, width: number, height: number, pixels: (r: Box) => Uint8ClampedArray) {
+  // Returns the landmarks for this frame and the per-frame motion; between detections both are carried over.
+  function locate(img: VisionImage, tMs: number): { faces: Point[][]; motion: number } {
+    const due = every === 1 || landmarks === null || frames % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
+    if (!due && landmarks !== null) return { faces: [landmarks.face], motion: landmarks.motion };
     const faces = deps.face.detect(img, tMs);
+    const face = faces[0];
+    if (face === undefined) {
+      landmarks = null;
+      return { faces, motion: 0 };
+    }
+    const span = landmarks === null ? 1 : Math.max(1, frames - landmarks.frame);
+    const perFrame = motion(prevFace, face) / span;
+    landmarks = { face, tMs, frame: frames, motion: perFrame };
+    return { faces, motion: perFrame };
+  }
+
+  function sample(img: VisionImage, tMs: number, width: number, height: number, pixels: (r: Box) => Uint8ClampedArray) {
+    const located = locate(img, tMs);
+    const faces = located.faces;
     if (frames % POSE_EVERY_N_FRAMES === 0) held = shoulders(deps.pose.detect(img, tMs));
     frames++;
     const x = new Float64Array(SAMPLE.length);
@@ -99,7 +126,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.shoulderY] = held?.y ?? 0;
     x[SAMPLE.shoulderW] = held?.w ?? 0;
     const face = faces[0];
-    const skin = face ? skinColour(faces, width, height, pixels) : null;
+    const skin = face ? skinColour(faces, width, height, pixels, deps.robustPixels === true) : null;
     if (!face || !skin) {
       prevFace = null;
       return x;
@@ -110,7 +137,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.b] = skin.b;
     x[SAMPLE.light] = skin.luma;
     x[SAMPLE.mouth] = mouthOpening(face);
-    x[SAMPLE.motion] = motion(prevFace, face);
+    x[SAMPLE.motion] = located.motion;
     prevFace = face;
     return x;
   }
@@ -121,6 +148,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     if (s <= second) return;
     second = s;
     const { estimate, pulse } = deps.engine.estimate(tMs);
+    if (recorded.length > 0) post({ type: 'samples', rows: recorded.splice(0) });
     post({ type: 'estimate', estimate });
     const frameCostMs = costCount === 0 ? 0 : costSum / costCount;
     // droppedFrames is counted on the main thread, which never sends the frames it drops.
@@ -152,6 +180,7 @@ export function createSensor(deps: SensorDeps): Sensor {
           return;
         }
         try {
+          if (deps.record === true) recorded.push(Array.from(x));
           deps.engine.push(x);
           estimateOnNewSecond(deps.now(), tMs);
         } catch (e) {
@@ -168,8 +197,10 @@ export function createSensor(deps: SensorDeps): Sensor {
     },
     reset() {
       deps.engine.reset();
+      recorded.length = 0;
       frames = 0;
       prevFace = null;
+      landmarks = null;
       held = null;
       reported.vision = false;
       reported.wasm = false;
@@ -245,8 +276,16 @@ async function loadDetectors(assetsBaseUrl: string): Promise<Detectors> {
 
 export interface FrameCanvas {
   image: VisionImage;
-  draw: (frame: VideoFrame) => void;
+  // Returns the size the frame was drawn at, when it differs from the default.
+  draw: (frame: VideoFrame) => { width: number; height: number } | undefined;
   pixels: (rect: Box) => Uint8ClampedArray;
+}
+
+// A fixed width with the camera's own aspect ratio: stretching to 4:3 would distort the face the landmarker sees.
+export function frameHeightFor(displayWidth: number, displayHeight: number): number {
+  return displayWidth > 0 && displayHeight > 0
+    ? Math.round((FRAME_WIDTH * displayHeight) / displayWidth)
+    : FRAME_HEIGHT;
 }
 
 export interface WorkerDeps {
@@ -267,7 +306,8 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
   // The Go runtime has no close; once loaded it is kept and reused by a retried init.
   let engine: Engine | null = null;
 
-  async function init(assetsBaseUrl: string): Promise<void> {
+  async function init(m: Extract<ToWorker, { type: 'init' }>): Promise<void> {
+    const { assetsBaseUrl } = m;
     if (sensor !== null) {
       post({ type: 'ready' });
       return;
@@ -293,7 +333,16 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
       post({ type: 'error', code: 'vision_failed', message: errorMessage(d.reason) });
       return;
     }
-    sensor = createSensor({ face: d.value.face, pose: d.value.pose, engine: e.value, post: deps.post, now: deps.now });
+    sensor = createSensor({
+      face: d.value.face,
+      pose: d.value.pose,
+      engine: e.value,
+      post: deps.post,
+      now: deps.now,
+      record: m.record === true,
+      landmarkEvery: m.capture?.landmarkEvery ?? 1,
+      robustPixels: m.capture?.robustPixels === true,
+    });
     post({ type: 'ready' });
   }
 
@@ -306,20 +355,21 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
     }
     let drawError: unknown = null;
     let drawn = false;
+    let size: { width: number; height: number } | undefined;
     try {
-      canvas.draw(f);
+      size = canvas.draw(f);
       drawn = true;
     } catch (e) {
       drawError = e;
     } finally {
       f.close();
     }
-    if (drawn) sensor.onFrame(canvas.image, tMs, width, height, canvas.pixels, startMs);
+    if (drawn) sensor.onFrame(canvas.image, tMs, size?.width ?? width, size?.height ?? height, canvas.pixels, startMs);
     else sensor.dropFrame(drawError, startMs);
   }
 
   return (m) => {
-    if (m.type === 'init') void init(m.assetsBaseUrl);
+    if (m.type === 'init') void init(m);
     else if (m.type === 'reset') sensor?.reset();
     else frame(m.frame, m.tMs);
   };
@@ -337,7 +387,10 @@ function offscreenCanvas(): FrameCanvas | null {
   return {
     image,
     draw: (frame) => {
-      ctx.drawImage(frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+      const height = frameHeightFor(frame.displayWidth, frame.displayHeight);
+      if (image.height !== height) image.height = height;
+      ctx.drawImage(frame, 0, 0, FRAME_WIDTH, height);
+      return { width: FRAME_WIDTH, height };
     },
     pixels: (r) => ctx.getImageData(r.x, r.y, r.w, r.h).data,
   };

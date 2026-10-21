@@ -9,6 +9,7 @@ import {
   createSensor,
   createWorkerHandler,
   faceOptions,
+  frameHeightFor,
   poseOptions,
   withCpuFallback,
   type FaceDetector,
@@ -91,6 +92,9 @@ const POSE: Point[] = Array.from({ length: 33 }, (_, i) =>
 );
 
 interface SetupOptions {
+  record?: boolean;
+  landmarkEvery?: number;
+  robustPixels?: boolean;
   faces?: () => Point[][];
   pose?: () => Point[] | null;
   estimate?: () => Decoded;
@@ -99,12 +103,11 @@ interface SetupOptions {
 
 function setup(opts: SetupOptions = {}) {
   const clock = { t: 0 };
-  const face: FaceDetector = {
-    detect: vi.fn(() => {
-      clock.t += 4;
-      return opts.faces ? opts.faces() : [makeFace()];
-    }),
-  };
+  const detectFace = vi.fn(() => {
+    clock.t += 4;
+    return opts.faces ? opts.faces() : [makeFace()];
+  });
+  const face: FaceDetector = { detect: detectFace };
   const detectPose = vi.fn(() => (opts.pose ? opts.pose() : POSE));
   const pose: PoseDetector = { detect: detectPose };
   const pushed: Float64Array[] = [];
@@ -119,7 +122,16 @@ function setup(opts: SetupOptions = {}) {
   const post = vi.fn((m: FromWorker) => {
     posted.push(m);
   });
-  const sensor = createSensor({ face, pose, engine, post, now: () => clock.t });
+  const sensor = createSensor({
+    face,
+    pose,
+    engine,
+    post,
+    now: () => clock.t,
+    record: opts.record ?? false,
+    landmarkEvery: opts.landmarkEvery ?? 1,
+    robustPixels: opts.robustPixels ?? false,
+  });
   const px = image();
   const rects: Box[] = [];
   const pixels = (rect: Box): Uint8ClampedArray => {
@@ -131,7 +143,7 @@ function setup(opts: SetupOptions = {}) {
   const frame = (tMs: number): void => {
     sensor.onFrame(source, tMs, WIDTH, HEIGHT, pixels);
   };
-  return { clock, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
+  return { clock, detectFace, detectPose, push, estimateAt, resetEngine, pushed, posted, sensor, rects, close, frame };
 }
 
 afterEach(() => {
@@ -139,6 +151,79 @@ afterEach(() => {
 });
 
 describe('createSensor', () => {
+  it('with landmarkEvery 3 finds landmarks every third frame and reads the colour on every frame', () => {
+    const s = setup({ landmarkEvery: 3 });
+    for (let i = 0; i < 7; i++) s.frame(i * 33);
+    expect(s.detectFace).toHaveBeenCalledTimes(3);
+    expect(s.pushed.every((x) => x[SAMPLE.face] === 1 && (x[SAMPLE.g] ?? 0) > 0)).toBe(true);
+  });
+
+  it('spreads the motion between landmark frames over the frames in between', () => {
+    let dx = 0;
+    const s = setup({ landmarkEvery: 3, faces: () => [makeFace(dx)] });
+    s.frame(0);
+    s.frame(33);
+    s.frame(66);
+    dx = 0.048;
+    s.frame(100);
+    expect(s.pushed[3]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9); // 0.3 inter-ocular distances over 3 frames
+    s.frame(133);
+    expect(s.pushed[4]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9);
+  });
+
+  it('looks for the face again when the last landmarks are older than 250 ms', () => {
+    const s = setup({ landmarkEvery: 10 });
+    s.frame(0);
+    s.frame(300);
+    expect(s.detectFace).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops reusing a face that the next landmark frame no longer finds', () => {
+    let present = true;
+    const s = setup({ landmarkEvery: 2, faces: () => (present ? [makeFace()] : []) });
+    s.frame(0);
+    present = false;
+    s.frame(33);
+    s.frame(66);
+    s.frame(100);
+    expect(s.pushed.map((x) => x[SAMPLE.face])).toEqual([1, 1, 0, 0]);
+  });
+
+  it('posts the numeric samples of the last second with the estimate when recording', () => {
+    const s = setup({ record: true });
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 996;
+    s.frame(10_033);
+    const samples = s.posted.find((m) => m.type === 'samples');
+    expect(samples !== undefined && isFromWorker(samples)).toBe(true);
+    const rows = samples?.type === 'samples' ? samples.rows : [];
+    expect(rows.map((r) => r[SAMPLE.timeMs])).toEqual([10_000, 10_033]);
+    expect(rows.every((r) => r.length === SAMPLE.length)).toBe(true);
+    s.clock.t = 2100;
+    s.frame(10_066);
+    const later = s.posted.filter((m) => m.type === 'samples').at(-1);
+    expect(later?.type === 'samples' ? later.rows.map((r) => r[SAMPLE.timeMs]) : []).toEqual([10_066]);
+  });
+
+  it('reads the skin colour with robust pixels when asked', () => {
+    const plain = setup();
+    const robust = setup({ robustPixels: true });
+    plain.frame(0);
+    robust.frame(0);
+    expect(robust.pushed[0]?.[SAMPLE.face]).toBe(1);
+    expect(robust.pushed[0]?.[SAMPLE.r]).toBe(plain.pushed[0]?.[SAMPLE.r]);
+  });
+
+  it('posts no samples unless recording', () => {
+    const s = setup();
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 2100;
+    s.frame(10_033);
+    expect(s.posted.some((m) => m.type === 'samples')).toBe(false);
+  });
+
   it('reduces a frame with a face to one sample, then posts frameDone', () => {
     const s = setup();
     s.frame(1234);
@@ -356,7 +441,9 @@ function deferred<T>() {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } = {}) {
+function handlerSetup(
+  opts: { drawThrows?: () => boolean; noCanvas?: boolean; drawSize?: { width: number; height: number } } = {},
+) {
   const clock = { t: 0 };
   const posted: FromWorker[] = [];
   const pushed: Float64Array[] = [];
@@ -394,8 +481,17 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
   const draw = vi.fn(() => {
     clock.t += 10;
     if (opts.drawThrows?.()) throw new DOMException('detached', 'InvalidStateError');
+    return opts.drawSize;
   });
-  const canvas: FrameCanvas = { image: {} as VisionImageForTest, draw, pixels: (r) => crop(px, r) };
+  const rects: Box[] = [];
+  const canvas: FrameCanvas = {
+    image: {} as VisionImageForTest,
+    draw,
+    pixels: (r) => {
+      rects.push(r);
+      return crop(px, r);
+    },
+  };
   const handle = createWorkerHandler({
     post: (m) => posted.push(m),
     canvas: opts.noCanvas ? null : canvas,
@@ -423,6 +519,7 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
     clock,
     posted,
     pushed,
+    rects,
     engine,
     detectors,
     closeDetectors,
@@ -438,7 +535,22 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
 
 type VisionImageForTest = FrameCanvas['image'];
 
+describe('frameHeightFor', () => {
+  it('keeps the camera aspect ratio at a fixed width', () => {
+    expect(frameHeightFor(1280, 720)).toBe(360);
+    expect(frameHeightFor(640, 480)).toBe(480);
+    expect(frameHeightFor(0, 0)).toBe(480);
+  });
+});
+
 describe('createWorkerHandler', () => {
+  it('locates the skin region on the size the frame was drawn at', async () => {
+    const h = handlerSetup({ drawSize: { width: WIDTH, height: 40 } });
+    await h.ready();
+    h.frame(0);
+    expect(h.rects[0]?.y).toBe(8);
+  });
+
   it('frees and acknowledges a frame that arrives before ready', () => {
     const h = handlerSetup();
     const close = h.frame(0);

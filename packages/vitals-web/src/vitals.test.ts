@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Diagnostics, Estimate, VitalsError, VitalsState } from './types.js';
+import type { Diagnostics, Estimate, VitalsError, VitalsOptions, VitalsState } from './types.js';
 import { createVitals } from './vitals.js';
 import type { FromWorker, ToWorker } from './worker/protocol.js';
 import { FakeStream, FakeVideo, FakeVideoFrame, deferred, domError, fakeMedia } from './test/media.js';
@@ -39,11 +39,15 @@ function valid(hrBpm: number, quality: number, rrRpm = 12): Estimate {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-function setup(camera: () => Promise<FakeStream> = () => Promise.resolve(new FakeStream())) {
+function setup(
+  camera: () => Promise<FakeStream> = () => Promise.resolve(new FakeStream()),
+  extra: Partial<VitalsOptions> = {},
+  lockExposure?: (track: MediaStreamTrack) => Promise<boolean>,
+) {
   const workers: FakeWorker[] = [];
   const { media, getUserMedia } = fakeMedia(camera);
   const vitals = createVitals(
-    { assetsBaseUrl: '/vitals/assets/' },
+    { assetsBaseUrl: '/vitals/assets/', ...extra },
     {
       createWorker: () => {
         const w = new FakeWorker();
@@ -51,6 +55,7 @@ function setup(camera: () => Promise<FakeStream> = () => Promise.resolve(new Fak
         return w as unknown as Worker;
       },
       media,
+      ...(lockExposure === undefined ? {} : { lockExposure }),
     },
   );
   const video = new FakeVideo();
@@ -111,6 +116,55 @@ describe('createVitals', () => {
     t.worker().send({ type: 'ready' });
     await started;
     expect(t.states).toEqual(['starting', 'calibrating']);
+  });
+
+  it('asks the worker to record only with onSamples, and hands the rows over', async () => {
+    const onSamples = vi.fn();
+    const t = setup(undefined, { onSamples });
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    expect(t.worker().posted[0]?.msg).toEqual({
+      type: 'init',
+      assetsBaseUrl: 'http://localhost:4200/vitals/assets',
+      record: true,
+    });
+    t.worker().send({ type: 'ready' });
+    await started;
+    t.worker().send({ type: 'samples', rows: [[1, 2, 3]] });
+    expect(onSamples).toHaveBeenCalledWith([[1, 2, 3]]);
+  });
+
+  it('passes the capture options to the worker', async () => {
+    const t = setup(undefined, { capture: { landmarkEvery: 3, robustPixels: true } });
+    void t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    expect(t.worker().posted[0]?.msg).toEqual({
+      type: 'init',
+      assetsBaseUrl: 'http://localhost:4200/vitals/assets',
+      capture: { landmarkEvery: 3, robustPixels: true },
+    });
+  });
+
+  it('locks exposure only when asked, and reports it with the diagnostics', async () => {
+    const lock = vi.fn(() => Promise.resolve(true));
+    const t = setup(undefined, { capture: { lockExposure: true } }, lock);
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    t.worker().send({ type: 'ready' });
+    await started;
+    await flush();
+    expect(lock).toHaveBeenCalledOnce();
+    t.worker().send({ type: 'diagnostics', diagnostics: { frameCostMs: 5, droppedFrames: 0, pulse: [] } });
+    expect(t.diagnostics.at(-1)).toMatchObject({ exposureLocked: true });
+
+    const plain = vi.fn(() => Promise.resolve(true));
+    const u = setup(undefined, {}, plain);
+    const s2 = u.vitals.start({ video: u.video.asElement() });
+    await flush();
+    u.worker().send({ type: 'ready' });
+    await s2;
+    await flush();
+    expect(plain).not.toHaveBeenCalled();
   });
 
   it('measures on the first estimate that is not invalid', async () => {

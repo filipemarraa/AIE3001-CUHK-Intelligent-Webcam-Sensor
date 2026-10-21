@@ -1,4 +1,4 @@
-import { attachCamera, requestCamera, startFrameLoop } from './camera.js';
+import { attachCamera, lockExposureWhenStable, requestCamera, startFrameLoop } from './camera.js';
 import { summarize } from './summary.js';
 import type {
   Estimate,
@@ -14,6 +14,7 @@ import { isFromWorker, type FromWorker, type ToWorker } from './worker/protocol.
 export interface VitalsDeps {
   createWorker(): Worker;
   media?: MediaDevices;
+  lockExposure?: (track: MediaStreamTrack) => Promise<boolean>;
 }
 
 const READY_TIMEOUT_MS = 30_000;
@@ -33,6 +34,7 @@ interface Session {
   busy: boolean;
   dropped: number;
   measuring: boolean;
+  exposureLocked: boolean | undefined;
 }
 
 const defaultDeps: VitalsDeps = {
@@ -141,8 +143,15 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
         }
         break;
       case 'diagnostics':
-        emit('diagnostics', { ...m.diagnostics, droppedFrames: s.dropped });
+        emit('diagnostics', {
+          ...m.diagnostics,
+          droppedFrames: s.dropped,
+          ...(s.exposureLocked === undefined ? {} : { exposureLocked: s.exposureLocked }),
+        });
         s.dropped = 0;
+        break;
+      case 'samples':
+        options.onSamples?.(m.rows);
         break;
       case 'error':
         fail(s, { code: m.code, message: m.message });
@@ -165,7 +174,17 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
       s.readyTimer = setTimeout(() => {
         fail(s, { code: 'vision_failed', message: 'worker did not become ready' });
       }, READY_TIMEOUT_MS);
-      worker.postMessage({ type: 'init', assetsBaseUrl } satisfies ToWorker);
+      const { landmarkEvery, robustPixels } = options.capture ?? {};
+      const capture = {
+        ...(landmarkEvery === undefined ? {} : { landmarkEvery }),
+        ...(robustPixels === undefined ? {} : { robustPixels }),
+      };
+      worker.postMessage({
+        type: 'init',
+        assetsBaseUrl,
+        ...(options.onSamples === undefined ? {} : { record: true }),
+        ...(Object.keys(capture).length === 0 ? {} : { capture }),
+      } satisfies ToWorker);
     });
   }
 
@@ -225,6 +244,12 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
       s.resolve();
       return;
     }
+    const track = s.stream?.getTracks().find((t) => t.kind !== 'audio');
+    if (options.capture?.lockExposure === true && track !== undefined) {
+      void (deps.lockExposure ?? lockExposureWhenStable)(track).then((locked) => {
+        s.exposureLocked = locked;
+      });
+    }
     history = [];
     calibratingAtMs = performance.now();
     stoppedAtMs = null;
@@ -255,6 +280,7 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
         busy: false,
         dropped: 0,
         measuring: false,
+        exposureLocked: undefined,
       };
       current = s;
       void run(s);
