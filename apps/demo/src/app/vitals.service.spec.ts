@@ -320,5 +320,43 @@ describe('VitalsService', () => {
 
       expect(service.screen()).toBe('calibration');
     });
+
+    it('an error event during the exercise cancels the exercise timer', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      fake.emit('error', { code: 'camera_unavailable' });
+      fake.summary.mockClear();
+
+      vi.advanceTimersByTime(EXERCISE_S * 1000 * 2);
+
+      expect(fake.summary).not.toHaveBeenCalled();
+      expect(service.screen()).toBe('welcome');
+    });
+
+    it('destroying the service cancels the exercise timer', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      TestBed.resetTestingModule();
+      fake.summary.mockClear();
+
+      vi.advanceTimersByTime(EXERCISE_S * 1000 * 2);
+
+      expect(fake.summary).not.toHaveBeenCalled();
+      expect(service.screen()).toBe('exercise');
+    });
+
+    it('destroying the service cancels the summary timer', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', estimate());
+      service.finishExercise();
+      TestBed.resetTestingModule();
+
+      vi.advanceTimersByTime(NO_FACE_TIMEOUT_S * 1000 * 2);
+
+      expect(service.screen()).toBe('summary');
+    });
   });
 });

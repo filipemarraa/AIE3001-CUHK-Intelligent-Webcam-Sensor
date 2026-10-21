@@ -11,8 +11,8 @@
       @if (invalid()) {
         <p>{{ reason() }}</p>
       } @else {
-        <p>Heart rate: {{ value(estimate()?.hrBpm) }} bpm</p>
-        <p>Breathing: {{ value(estimate()?.rrRpm) }} breaths/min</p>
+        <p>Heart rate: {{ heartRate() }} bpm</p>
+        <p>Breathing: {{ breathingRate() }} breaths/min</p>
       }
     </div>
   }

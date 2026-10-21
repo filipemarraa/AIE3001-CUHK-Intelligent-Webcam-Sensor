@@ -105,11 +105,28 @@ describe('serve.mjs', () => {
     '/assets/%2e%2e%2f%2e%2e%2fpackage.json',
     '/..%2fpackage.json',
     '/%252e%252e/package.json',
+    '/..\\package.json',
+    '/assets\\..\\..\\package.json',
+    '/%5c..%5cpackage.json',
+    '/main.js%00.png',
+    '/%00/../package.json',
+    'http://127.0.0.1/main.js',
+    'http://127.0.0.1/../package.json',
+    'http://evil.example/package.json',
   ])('rejects traversal %s with 404', async (path) => {
     const res = await get(path);
 
     expect(res.status).toBe(404);
     expect(res.body).not.toContain('secret');
+  });
+
+  it('keeps a double-slash path inside the root: it is only the extensionless fallback', async () => {
+    const res = await get('//etc/passwd');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('<title>index</title>');
+    expect(res.body).not.toContain('root:');
+    expect((await get('//etc/passwd.txt')).status).toBe(404);
   });
 
   it('rejects methods other than GET and HEAD', async () => {

@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { breathingRateText, heartRateText } from '../../format';
 import { VitalsService } from '../../vitals.service';
 
 @Component({
@@ -12,7 +13,7 @@ export class Summary {
     return q === null || q === undefined ? '—' : `${String(Math.round(q * 100))}%`;
   });
 
-  protected value(n: number | null | undefined): string {
-    return n === null || n === undefined ? '—' : String(n);
-  }
+  protected readonly heartRateStart = computed(() => heartRateText(this.vitals.summary()?.hrStart));
+  protected readonly heartRateEnd = computed(() => heartRateText(this.vitals.summary()?.hrEnd));
+  protected readonly breathingMean = computed(() => breathingRateText(this.vitals.summary()?.rrMean));
 }

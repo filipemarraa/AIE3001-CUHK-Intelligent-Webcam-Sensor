@@ -21,3 +21,10 @@ packages/vitals-web/assets/mediapipe/
 
 # Angular CLI cache
 .angular/
+
+# Fake camera video for the e2e tests (scripts/make-fake-video.mjs)
+apps/demo/e2e/fake.y4m
+
+# Playwright output
+test-results/
+playwright-report/

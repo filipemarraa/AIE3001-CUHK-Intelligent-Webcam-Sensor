@@ -1,4 +1,5 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { breathingRateText, heartRateText } from '../../format';
 import { reasonText } from '../../reason-text';
 import { TARGET_RPM, VitalsService } from '../../vitals.service';
 
@@ -32,9 +33,8 @@ export class Exercise {
     });
   }
 
-  protected value(n: number | null | undefined): string {
-    return n === null || n === undefined ? '—' : String(n);
-  }
+  protected readonly heartRate = computed(() => heartRateText(this.estimate()?.hrBpm));
+  protected readonly breathingRate = computed(() => breathingRateText(this.estimate()?.rrRpm));
 
   protected toggleNumbers(): void {
     this.vitals.showNumbers.update((v) => !v);

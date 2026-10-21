@@ -38,7 +38,17 @@ describe('Exercise', () => {
     const text = el.textContent.replace(/\s+/g, ' ');
     expect(toggle().textContent.trim()).toBe('Hide numbers');
     expect(text).toContain('Heart rate: 66 bpm');
-    expect(text).toContain('Breathing: 6 breaths/min');
+    expect(text).toContain('Breathing: 6.0 breaths/min');
+  });
+
+  it('rounds the heart rate to an integer and the breathing rate to one decimal', async () => {
+    fake.emit('estimate', estimate({ hrBpm: 66.37, rrRpm: 6.04 }));
+    service.showNumbers.set(true);
+    await whenStable();
+
+    const text = el.textContent.replace(/\s+/g, ' ');
+    expect(text).toContain('Heart rate: 66 bpm');
+    expect(text).toContain('Breathing: 6.0 breaths/min');
   });
 
   it('shows a dash for a missing number', async () => {

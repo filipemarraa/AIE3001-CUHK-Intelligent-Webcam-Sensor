@@ -1,10 +1,10 @@
 <section class="summary" aria-labelledby="summary-title">
   <h1 id="summary-title">Well done</h1>
-  @if (vitals.summary(); as s) {
+  @if (vitals.summary()) {
     <ul class="results">
-      <li>Heart rate at start: {{ value(s.hrStart) }} bpm</li>
-      <li>Heart rate at end: {{ value(s.hrEnd) }} bpm</li>
-      <li>Average breathing: {{ value(s.rrMean) }} breaths/min</li>
+      <li>Heart rate at start: {{ heartRateStart() }} bpm</li>
+      <li>Heart rate at end: {{ heartRateEnd() }} bpm</li>
+      <li>Average breathing: {{ breathingMean() }} breaths/min</li>
       <li>Signal quality: {{ quality() }}</li>
     </ul>
   }

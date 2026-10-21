@@ -34,6 +34,15 @@ describe('Summary', () => {
     expect(text).toContain('Signal quality: 80%');
   });
 
+  it('rounds the heart rate to an integer and the breathing rate to one decimal', async () => {
+    fake.summaryValue = { hrStart: 70.4, hrEnd: 63.6, rrMean: 6.0412, qualityMean: 0.8, durationS: 120, method: 'pos' };
+    const { text } = await render();
+
+    expect(text).toContain('Heart rate at start: 70 bpm');
+    expect(text).toContain('Heart rate at end: 64 bpm');
+    expect(text).toContain('Average breathing: 6.0 breaths/min');
+  });
+
   it('shows a dash for missing values', async () => {
     fake.summaryValue = { hrStart: null, hrEnd: null, rrMean: null, qualityMean: null, durationS: 5, method: 'pos' };
     const { text } = await render();

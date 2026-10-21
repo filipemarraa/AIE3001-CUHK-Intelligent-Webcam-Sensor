@@ -9,7 +9,7 @@
     "build": "ng build",
     "serve:dist": "node serve.mjs",
     "test": "ng test --watch=false && vitest run serve.test.mjs",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.spec.json --noEmit"
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.spec.json --noEmit && tsc -p tsconfig.e2e.json"
   },
   "dependencies": {
     "@angular/common": "22.2.3",
