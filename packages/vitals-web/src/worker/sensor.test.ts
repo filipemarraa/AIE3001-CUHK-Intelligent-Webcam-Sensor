@@ -9,6 +9,7 @@ import {
   createSensor,
   createWorkerHandler,
   faceOptions,
+  frameHeightFor,
   poseOptions,
   withCpuFallback,
   type FaceDetector,
@@ -356,7 +357,9 @@ function deferred<T>() {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } = {}) {
+function handlerSetup(
+  opts: { drawThrows?: () => boolean; noCanvas?: boolean; drawSize?: { width: number; height: number } } = {},
+) {
   const clock = { t: 0 };
   const posted: FromWorker[] = [];
   const pushed: Float64Array[] = [];
@@ -394,8 +397,17 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
   const draw = vi.fn(() => {
     clock.t += 10;
     if (opts.drawThrows?.()) throw new DOMException('detached', 'InvalidStateError');
+    return opts.drawSize;
   });
-  const canvas: FrameCanvas = { image: {} as VisionImageForTest, draw, pixels: (r) => crop(px, r) };
+  const rects: Box[] = [];
+  const canvas: FrameCanvas = {
+    image: {} as VisionImageForTest,
+    draw,
+    pixels: (r) => {
+      rects.push(r);
+      return crop(px, r);
+    },
+  };
   const handle = createWorkerHandler({
     post: (m) => posted.push(m),
     canvas: opts.noCanvas ? null : canvas,
@@ -423,6 +435,7 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
     clock,
     posted,
     pushed,
+    rects,
     engine,
     detectors,
     closeDetectors,
@@ -438,7 +451,22 @@ function handlerSetup(opts: { drawThrows?: () => boolean; noCanvas?: boolean } =
 
 type VisionImageForTest = FrameCanvas['image'];
 
+describe('frameHeightFor', () => {
+  it('keeps the camera aspect ratio at a fixed width', () => {
+    expect(frameHeightFor(1280, 720)).toBe(360);
+    expect(frameHeightFor(640, 480)).toBe(480);
+    expect(frameHeightFor(0, 0)).toBe(480);
+  });
+});
+
 describe('createWorkerHandler', () => {
+  it('locates the skin region on the size the frame was drawn at', async () => {
+    const h = handlerSetup({ drawSize: { width: WIDTH, height: 40 } });
+    await h.ready();
+    h.frame(0);
+    expect(h.rects[0]?.y).toBe(8);
+  });
+
   it('frees and acknowledges a frame that arrives before ready', () => {
     const h = handlerSetup();
     const close = h.frame(0);

@@ -245,8 +245,16 @@ async function loadDetectors(assetsBaseUrl: string): Promise<Detectors> {
 
 export interface FrameCanvas {
   image: VisionImage;
-  draw: (frame: VideoFrame) => void;
+  // Returns the size the frame was drawn at, when it differs from the default.
+  draw: (frame: VideoFrame) => { width: number; height: number } | undefined;
   pixels: (rect: Box) => Uint8ClampedArray;
+}
+
+// A fixed width with the camera's own aspect ratio: stretching to 4:3 would distort the face the landmarker sees.
+export function frameHeightFor(displayWidth: number, displayHeight: number): number {
+  return displayWidth > 0 && displayHeight > 0
+    ? Math.round((FRAME_WIDTH * displayHeight) / displayWidth)
+    : FRAME_HEIGHT;
 }
 
 export interface WorkerDeps {
@@ -306,15 +314,16 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
     }
     let drawError: unknown = null;
     let drawn = false;
+    let size: { width: number; height: number } | undefined;
     try {
-      canvas.draw(f);
+      size = canvas.draw(f);
       drawn = true;
     } catch (e) {
       drawError = e;
     } finally {
       f.close();
     }
-    if (drawn) sensor.onFrame(canvas.image, tMs, width, height, canvas.pixels, startMs);
+    if (drawn) sensor.onFrame(canvas.image, tMs, size?.width ?? width, size?.height ?? height, canvas.pixels, startMs);
     else sensor.dropFrame(drawError, startMs);
   }
 
@@ -337,7 +346,10 @@ function offscreenCanvas(): FrameCanvas | null {
   return {
     image,
     draw: (frame) => {
-      ctx.drawImage(frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+      const height = frameHeightFor(frame.displayWidth, frame.displayHeight);
+      if (image.height !== height) image.height = height;
+      ctx.drawImage(frame, 0, 0, FRAME_WIDTH, height);
+      return { width: FRAME_WIDTH, height };
     },
     pixels: (r) => ctx.getImageData(r.x, r.y, r.w, r.h).data,
   };
