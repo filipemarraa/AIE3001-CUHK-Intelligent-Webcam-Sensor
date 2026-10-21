@@ -173,19 +173,21 @@ func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
 }
 
 func TestPhaseHoldWhenFlat(t *testing.T) {
-	ts, y, w := synthShoulders(6, 25, 30, 0, 0, 1)
-	last := y[len(y)-1]
-	for i := 1; i <= 90; i++ {
-		ts = append(ts, ts[len(ts)-1]+1000.0/30)
-		y = append(y, last)
-		w = append(w, 0.3)
-	}
-	got, err := Estimate(ts, y, w, PhaseIn, DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Phase != PhaseHold {
-		t.Errorf("got %v, want hold", got.Phase)
+	for _, startS := range []float64{25, 25.3, 25.6, 26, 26.8, 27.5} {
+		ts, y, w := synthShoulders(6, startS, 30, 0, 0, 1)
+		last := y[len(y)-1]
+		for i := 1; i <= 90; i++ {
+			ts = append(ts, ts[len(ts)-1]+1000.0/30)
+			y = append(y, last)
+			w = append(w, 0.3)
+		}
+		got, err := Estimate(ts, y, w, PhaseIn, DefaultConfig())
+		if err != nil {
+			t.Fatalf("pause from %.1f s: %v", startS, err)
+		}
+		if got.Phase != PhaseHold {
+			t.Errorf("pause from %.1f s: got %v, want hold", startS, got.Phase)
+		}
 	}
 }
 

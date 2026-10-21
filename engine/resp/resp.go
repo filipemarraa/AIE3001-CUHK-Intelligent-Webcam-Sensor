@@ -114,18 +114,16 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 
 // phase reads the direction from a sinusoid fitted at the breathing frequency over the last cycle: a matched filter
 // that rejects faster motion such as the heartbeat and does not ring at the window edge like a band-pass filter.
-// Turning points come out as hold through the hysteresis on that direction. A real pause is the recent signal being
-// much flatter than the sinusoid predicts for the same window, which a turning point inside the window is not.
+// Turning points come out as hold through the hysteresis on that direction. A real pause is a recent window that a
+// flat line explains much better than the sinusoid does; a turning point while breathing goes on is still explained by
+// the sinusoid, whatever the mean slope of the window.
 func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	fit, ok := fitSinusoid(x, freqHz, cfg.SampleRateHz)
 	if !ok {
 		return PhaseHold
 	}
-	m := min(len(x), max(2, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
-	expected := linearSlope(fit.tail(m), m, cfg.SampleRateHz)
-	observed := linearSlope(x, m, cfg.SampleRateHz)
-	peak := fit.amp * 2 * math.Pi * freqHz
-	if math.Abs(expected) >= 2*cfg.HoldRatio*peak && math.Abs(observed) < cfg.HoldRatio*math.Abs(expected) {
+	m := min(len(x), max(3, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
+	if paused(x[len(x)-m:], fit.tail(m), fit.amp, cfg) {
 		return PhaseHold
 	}
 	return nextPhase(fit.direction(), prev, cfg)
@@ -143,6 +141,30 @@ func nextPhase(d float64, prev Phase, cfg Config) Phase {
 		return PhaseHold
 	}
 	return prev
+}
+
+// paused compares how well a flat line and the fitted sinusoid (with its own offset) explain the recent samples.
+func paused(observed, model []float64, amp float64, cfg Config) bool {
+	if stddev(model) < cfg.HoldRatio*0.1*amp {
+		return false
+	}
+	var offset float64
+	for i := range observed {
+		offset += observed[i] - model[i]
+	}
+	offset /= float64(len(observed))
+	mean := 0.0
+	for _, v := range observed {
+		mean += v
+	}
+	mean /= float64(len(observed))
+	var errFlat, errModel float64
+	for i, v := range observed {
+		errFlat += (v - mean) * (v - mean)
+		r := v - model[i] - offset
+		errModel += r * r
+	}
+	return errModel > 2*errFlat
 }
 
 // sinusoid is a·cos(ωk) + b·sin(ωk) over sample index k, fitted to the last n samples of a signal.
@@ -224,25 +246,6 @@ func solve3(m [3][4]float64) ([3]float64, bool) {
 	return out, true
 }
 
-// linearSlope is the least-squares slope, per second, over the last n samples of x.
-func linearSlope(x []float64, n int, fs float64) float64 {
-	n = min(max(n, 2), len(x))
-	seg := x[len(x)-n:]
-	var sumT, sumY, sumTT, sumTY float64
-	for k, y := range seg {
-		t := float64(k) / fs
-		sumT += t
-		sumY += y
-		sumTT += t * t
-		sumTY += t * y
-	}
-	den := float64(n)*sumTT - sumT*sumT
-	if den == 0 {
-		return 0
-	}
-	return (float64(n)*sumTY - sumT*sumY) / den
-}
-
 // autocorrelation is the normalised correlation of x with itself shifted by lag samples, in [-1, 1].
 func autocorrelation(x []float64, lag int) float64 {
 	if lag <= 0 || lag >= len(x) {
@@ -258,4 +261,17 @@ func autocorrelation(x []float64, lag int) float64 {
 		return 0
 	}
 	return xy / math.Sqrt(xx*yy)
+}
+
+func stddev(x []float64) float64 {
+	var mean float64
+	for _, v := range x {
+		mean += v
+	}
+	mean /= float64(len(x))
+	var ss float64
+	for _, v := range x {
+		ss += (v - mean) * (v - mean)
+	}
+	return math.Sqrt(ss / float64(len(x)))
 }
