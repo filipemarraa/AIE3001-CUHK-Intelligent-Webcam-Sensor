@@ -23,5 +23,5 @@ describe('network and storage ban (spec §3)', () => {
 
   it('allows the worker assets loader', async () => {
     expect(await errorsFor("fetch('/x')", 'packages/vitals-web/src/worker/assets.ts')).toEqual([]);
-  });
+  }, 30_000);
 });

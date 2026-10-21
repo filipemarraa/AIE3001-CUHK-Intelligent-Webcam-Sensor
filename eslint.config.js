@@ -26,6 +26,12 @@ export default tseslint.config(
     },
   },
   {
+    // Outside the typed projects: untyped recommended rules only.
+    files: ['apps/demo/e2e/**/*.ts', 'apps/demo/*.mjs'],
+    extends: [eslint.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly' } },
+  },
+  {
     files: ['packages/vitals-web/src/worker/assets.ts'],
     rules: { 'no-restricted-globals': 'off' },
   },

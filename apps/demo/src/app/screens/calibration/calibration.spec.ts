@@ -27,4 +27,12 @@ describe('Calibration', () => {
     await fixture.whenStable();
     expect(el.querySelector('[aria-live]')?.textContent.trim()).toBe('More light, please');
   });
+
+  it('shows the warming-up copy for an invalid estimate without a reason', async () => {
+    const fixture = TestBed.createComponent(Calibration);
+    const el = fixture.nativeElement as HTMLElement;
+    fake.emit('estimate', estimate({ confidence: 'invalid', reason: null }));
+    await fixture.whenStable();
+    expect(el.querySelector('[aria-live]')?.textContent.trim()).toBe('Getting a steady signal…');
+  });
 });

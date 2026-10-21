@@ -1,6 +1,6 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { breathingRateText, heartRateText } from '../../format';
-import { reasonText } from '../../reason-text';
+import { instructionText } from '../../reason-text';
 import { TARGET_RPM, VitalsService } from '../../vitals.service';
 
 const INHALE_SHARE = 0.4;
@@ -21,7 +21,7 @@ export class Exercise {
   protected readonly label = computed(() => guideLabel(this.elapsedS(), this.periodS));
   protected readonly estimate = this.vitals.estimate;
   protected readonly invalid = computed(() => this.estimate()?.confidence === 'invalid');
-  protected readonly reason = computed(() => reasonText(this.estimate()?.reason ?? null));
+  protected readonly reason = computed(() => instructionText(this.estimate()));
 
   constructor() {
     const startedAt = Date.now();

@@ -16,6 +16,7 @@ export const ASSETS_BASE_URL = '/assets/vitals';
 export const EXERCISE_S = 120;
 export const TARGET_RPM = 6;
 export const NO_FACE_TIMEOUT_S = 60;
+export const CALIBRATION_MAX_S = 120;
 const NO_FACE_ESTIMATES = 60;
 
 // The worker is an entry of this app so that the Angular build bundles it and @mediapipe/tasks-vision with it.
@@ -40,6 +41,7 @@ export class VitalsService {
   private noFaceRun = 0;
   private exerciseTimer: ReturnType<typeof setTimeout> | null = null;
   private summaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private calibrationTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly screenState = signal<Screen>('welcome');
   private readonly estimateState = signal<Estimate | null>(null);
@@ -91,7 +93,11 @@ export class VitalsService {
       if (session === this.session) this.cameraOnState.set(false);
       return;
     }
-    if (session === this.session) this.screenState.set('calibration');
+    if (session !== this.session) return;
+    this.screenState.set('calibration');
+    this.calibrationTimer = setTimeout(() => {
+      this.exit();
+    }, CALIBRATION_MAX_S * 1000);
   }
 
   finishExercise(): void {
@@ -135,13 +141,20 @@ export class VitalsService {
   }
 
   private enterExercise(): void {
+    this.clearCalibrationTimer();
     this.screenState.set('exercise');
     this.exerciseTimer = setTimeout(() => {
       this.finishExercise();
     }, EXERCISE_S * 1000);
   }
 
+  private clearCalibrationTimer(): void {
+    if (this.calibrationTimer !== null) clearTimeout(this.calibrationTimer);
+    this.calibrationTimer = null;
+  }
+
   private clearTimers(): void {
+    this.clearCalibrationTimer();
     if (this.exerciseTimer !== null) clearTimeout(this.exerciseTimer);
     if (this.summaryTimer !== null) clearTimeout(this.summaryTimer);
     this.exerciseTimer = null;

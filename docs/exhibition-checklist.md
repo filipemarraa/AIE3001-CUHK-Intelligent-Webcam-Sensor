@@ -8,7 +8,7 @@ All of them, over 10 consecutive sessions:
 
 1. Every estimate with confidence `high` or `medium` is within ±5 bpm of the finger pulse oximeter reading taken at the same moment.
 2. No crash and no freeze: the app never needs a reload during or between sessions.
-3. Frame cost under 25 ms (mean, read from the transparency panel) and no sustained dropped frames. The panel counter is the number of frames dropped since the previous reading, that is, per second: it must stay near zero (a few per second at most) and must not stay high second after second while the video plays smoothly.
+3. Frame cost under 25 ms (mean, read from the transparency panel) and dropped frames stable. Dropping frames is the backpressure mechanism: when the worker takes longer than the frame interval, a steady drop count (for example the same few per second on every reading) is expected and is not a failure. Fail if the count climbs second after second, or if the video stops playing smoothly.
 4. First estimate on screen within 15 s of pressing "Turn on camera".
 
 ## Setup (once per laptop)

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeVitals, WARMING_UP, estimate } from './testing/fake-vitals';
-import { EXERCISE_S, NO_FACE_TIMEOUT_S, VITALS_FACTORY, VitalsService } from './vitals.service';
+import { CALIBRATION_MAX_S, EXERCISE_S, NO_FACE_TIMEOUT_S, VITALS_FACTORY, VitalsService } from './vitals.service';
 
 describe('VitalsService', () => {
   let fake: FakeVitals;
@@ -16,6 +16,48 @@ describe('VitalsService', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe('calibration limit', () => {
+    it('exits like Exit after CALIBRATION_MAX_S without reaching the exercise', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      fake.emit('estimate', WARMING_UP);
+      fake.stop.mockClear();
+
+      vi.advanceTimersByTime(CALIBRATION_MAX_S * 1000 - 1);
+      expect(service.screen()).toBe('calibration');
+      vi.advanceTimersByTime(1);
+
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(service.screen()).toBe('welcome');
+      expect(service.cameraOn()).toBe(false);
+      expect(service.estimate()).toBeNull();
+    });
+
+    it('is cleared on entering the exercise', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      vi.advanceTimersByTime(CALIBRATION_MAX_S * 1000 - 1);
+      fake.emit('estimate', estimate());
+      fake.stop.mockClear();
+
+      vi.advanceTimersByTime(CALIBRATION_MAX_S * 1000 - 1);
+
+      expect(service.screen()).toBe('exercise');
+      expect(fake.stop).not.toHaveBeenCalled();
+    });
+
+    it('is cleared by Exit', async () => {
+      vi.useFakeTimers();
+      await service.consentAndStart(video);
+      service.exit();
+      fake.stop.mockClear();
+
+      vi.advanceTimersByTime(CALIBRATION_MAX_S * 1000 * 2);
+
+      expect(fake.stop).not.toHaveBeenCalled();
+    });
   });
 
   it('does not start the camera before consent', () => {

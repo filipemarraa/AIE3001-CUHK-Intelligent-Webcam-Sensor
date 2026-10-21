@@ -1,5 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
-import { reasonText } from '../../reason-text';
+import { instructionText } from '../../reason-text';
 import { VitalsService } from '../../vitals.service';
 
 @Component({
@@ -8,5 +8,5 @@ import { VitalsService } from '../../vitals.service';
 })
 export class Calibration {
   private readonly vitals = inject(VitalsService);
-  protected readonly text = computed(() => reasonText(this.vitals.estimate()?.reason ?? null));
+  protected readonly text = computed(() => instructionText(this.vitals.estimate()));
 }
