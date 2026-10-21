@@ -194,7 +194,7 @@ describe('createVitals', () => {
     await flush();
     t.worker().onerror?.(new Event('error'));
 
-    await expect(started).rejects.toMatchObject({ code: 'wasm_failed' });
+    await expect(started).rejects.toEqual({ code: 'wasm_failed', message: 'sensor worker failed to load' });
     expect(t.states).toEqual(['starting', 'stopped']);
   });
 
@@ -271,6 +271,111 @@ describe('createVitals', () => {
     for (const w of t.workers) expect(w.terminate).toHaveBeenCalledOnce();
     expect(t.states).toEqual(['starting', 'stopped']);
     expect(t.errors).toEqual([]);
+  });
+
+  it('never lets a stale stream touch the video of a newer session (Review Focus 4)', async () => {
+    const first = deferred<FakeStream>();
+    const second = deferred<FakeStream>();
+    const cameras = [first, second];
+    let calls = 0;
+    const t = setup(() => {
+      const d = cameras[calls++];
+      if (d === undefined) throw new Error('unexpected getUserMedia');
+      return d.promise;
+    });
+    const a = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    t.vitals.stop();
+    await a;
+    const b = t.vitals.start({ video: t.video.asElement() });
+    const stream2 = new FakeStream();
+    second.resolve(stream2);
+    await flush();
+    t.workers[1]?.send({ type: 'ready' });
+    await b;
+
+    const stream1 = new FakeStream();
+    first.resolve(stream1);
+    await flush();
+
+    expect(t.video.srcObject).toBe(stream2);
+    expect(t.video.play).toHaveBeenCalledOnce();
+    expect(stream1.tracks.every((tr) => tr.readyState === 'ended')).toBe(true);
+    expect(stream2.tracks.every((tr) => tr.readyState === 'live')).toBe(true);
+    expect(t.states).toEqual(['starting', 'stopped', 'starting', 'calibrating']);
+  });
+
+  it('ends the tracks at once when stopped while the video is starting to play', async () => {
+    const stream = new FakeStream();
+    const t = setup(() => Promise.resolve(stream));
+    const play = deferred<undefined>();
+    t.video.play.mockReturnValueOnce(play.promise);
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+
+    t.vitals.stop();
+    expect(stream.tracks.every((tr) => tr.readyState === 'ended')).toBe(true);
+    expect(t.video.srcObject).toBeNull();
+
+    play.reject(domError('AbortError'));
+    await started;
+    await flush();
+    expect(t.errors).toEqual([]);
+    expect(t.states).toEqual(['starting', 'stopped']);
+  });
+
+  it('fails with vision_failed when the worker never becomes ready', async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = new FakeStream();
+      const t = setup(() => Promise.resolve(stream));
+      const started = t.vitals.start({ video: t.video.asElement() });
+      const outcome = expect(started).rejects.toEqual({
+        code: 'vision_failed',
+        message: 'worker did not become ready',
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(t.states).toEqual(['starting']);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await outcome;
+      expect(t.errors).toEqual([{ code: 'vision_failed', message: 'worker did not become ready' }]);
+      expect(t.states).toEqual(['starting', 'stopped']);
+      expect(t.worker().terminate).toHaveBeenCalledOnce();
+      expect(stream.tracks[0]?.readyState).toBe('ended');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not time out once the worker is ready', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = setup();
+      const started = t.vitals.start({ video: t.video.asElement() });
+      await vi.advanceTimersByTimeAsync(0);
+      t.worker().send({ type: 'ready' });
+      await started;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(t.errors).toEqual([]);
+      expect(t.states).toEqual(['starting', 'calibrating']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a worker crash after ready as wasm_failed without calling it a load failure', async () => {
+    const t = await running();
+    t.worker().onerror?.(new Event('error'));
+    expect(t.errors).toEqual([{ code: 'wasm_failed', message: 'sensor worker crashed' }]);
+    expect(t.states.at(-1)).toBe('stopped');
+  });
+
+  it('has no summary after a failed start', async () => {
+    const t = setup(() => Promise.reject(domError('NotAllowedError')));
+    await expect(t.vitals.start({ video: t.video.asElement() })).rejects.toMatchObject({ code: 'camera_denied' });
+    expect(t.vitals.summary()).toBeNull();
   });
 
   it('stops on pagehide', async () => {

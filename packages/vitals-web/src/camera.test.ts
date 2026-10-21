@@ -60,7 +60,10 @@ describe('startFrameLoop', () => {
     FakeVideoFrame.created = [];
     vi.stubGlobal('VideoFrame', FakeVideoFrame);
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it('sends one frame per presented video frame with its capture time', () => {
     const video = new FakeVideo();

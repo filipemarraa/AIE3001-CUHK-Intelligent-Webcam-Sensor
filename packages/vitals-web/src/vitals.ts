@@ -1,4 +1,4 @@
-import { openCamera, startFrameLoop } from './camera.js';
+import { attachCamera, requestCamera, startFrameLoop } from './camera.js';
 import { summarize } from './summary.js';
 import type {
   Estimate,
@@ -16,6 +16,8 @@ export interface VitalsDeps {
   media?: MediaDevices;
 }
 
+const READY_TIMEOUT_MS = 30_000;
+
 type HandlerSets = { [K in keyof VitalsEvents]: Set<(payload: VitalsEvents[K]) => void> };
 
 interface Session {
@@ -24,6 +26,8 @@ interface Session {
   resolve: () => void;
   reject: (e: VitalsError) => void;
   worker: Worker | null;
+  ready: boolean;
+  readyTimer: ReturnType<typeof setTimeout> | null;
   stream: MediaStream | null;
   stopLoop: (() => void) | null;
   busy: boolean;
@@ -93,6 +97,7 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
     pageWindow()?.removeEventListener('pagehide', onPageHide);
     s.stopLoop?.();
     s.worker?.terminate();
+    if (s.readyTimer !== null) clearTimeout(s.readyTimer);
     if (s.stream !== null) endStream(s.stream, s.video);
     s.video.srcObject = null;
     if (calibratingAtMs !== null && stoppedAtMs === null) stoppedAtMs = performance.now();
@@ -120,6 +125,8 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
   function onWorkerMessage(s: Session, m: FromWorker, ready: () => void): void {
     switch (m.type) {
       case 'ready':
+        s.ready = true;
+        if (s.readyTimer !== null) clearTimeout(s.readyTimer);
         ready();
         break;
       case 'frameDone':
@@ -153,27 +160,38 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
       };
       // fail() rejects start(); this promise then never settles and the pending Promise.all is dropped.
       worker.onerror = () => {
-        fail(s, { code: 'wasm_failed', message: 'sensor worker failed to load' });
+        fail(s, { code: 'wasm_failed', message: s.ready ? 'sensor worker crashed' : 'sensor worker failed to load' });
       };
+      s.readyTimer = setTimeout(() => {
+        fail(s, { code: 'vision_failed', message: 'worker did not become ready' });
+      }, READY_TIMEOUT_MS);
       worker.postMessage({ type: 'init', assetsBaseUrl } satisfies ToWorker);
     });
   }
 
+  // A stale session never touches the video: a newer session may already be showing its own stream there.
   async function camera(s: Session): Promise<void> {
-    const stream = await openCamera(s.video, deps.media);
+    const stream = await requestCamera(deps.media);
     if (s !== current) {
       endStream(stream, s.video);
       return;
     }
+    // Owned by the session before play() so that a stop() during play() ends the tracks directly.
     s.stream = stream;
     for (const track of stream.getTracks()) track.addEventListener('ended', onTrackEnded);
+    await attachCamera(s.video, stream);
   }
 
   function frameLoop(s: Session): () => void {
     return startFrameLoop(
       s.video,
       (frame, tMs) => {
-        s.worker?.postMessage({ type: 'frame', frame, tMs } satisfies ToWorker, [frame]);
+        if (s.worker === null) {
+          frame.close();
+          s.dropped += 1;
+          return;
+        }
+        s.worker.postMessage({ type: 'frame', frame, tMs } satisfies ToWorker, [frame]);
         s.busy = true;
       },
       () => s.busy,
@@ -230,6 +248,8 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
         resolve,
         reject,
         worker: null,
+        ready: false,
+        readyTimer: null,
         stream: null,
         stopLoop: null,
         busy: false,

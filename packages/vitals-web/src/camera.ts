@@ -19,15 +19,18 @@ function endStream(stream: MediaStream): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
-export async function openCamera(video: HTMLVideoElement, media?: MediaDevices): Promise<MediaStream> {
+export async function requestCamera(media?: MediaDevices): Promise<MediaStream> {
   const devices = media ?? (globalThis as { navigator?: { mediaDevices?: MediaDevices } }).navigator?.mediaDevices;
   if (devices === undefined) throw { code: 'camera_unavailable', message: 'mediaDevices unavailable' } as VitalsError;
-  let stream: MediaStream;
   try {
-    stream = await devices.getUserMedia(CONSTRAINTS);
+    return await devices.getUserMedia(CONSTRAINTS);
   } catch (e) {
     throw mapCameraError(e);
   }
+}
+
+// On failure the stream is ended; the video is detached only if it still shows this stream.
+export async function attachCamera(video: HTMLVideoElement, stream: MediaStream): Promise<void> {
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
@@ -35,9 +38,14 @@ export async function openCamera(video: HTMLVideoElement, media?: MediaDevices):
     await video.play();
   } catch (e) {
     endStream(stream);
-    video.srcObject = null;
+    if (video.srcObject === stream) video.srcObject = null;
     throw mapCameraError(e);
   }
+}
+
+export async function openCamera(video: HTMLVideoElement, media?: MediaDevices): Promise<MediaStream> {
+  const stream = await requestCamera(media);
+  await attachCamera(video, stream);
   return stream;
 }
 
