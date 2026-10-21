@@ -119,6 +119,41 @@ func TestPhaseFollowsSignal(t *testing.T) {
 	}
 }
 
+func TestPhaseIgnoresCardiacMotionOfTheShoulders(t *testing.T) {
+	const fps = 30.0
+	var ts, y, w []float64
+	for i := 0; i < int(60*fps); i++ {
+		t := float64(i) / fps
+		ts = append(ts, t*1000)
+		y = append(y, 0.6-0.004*math.Sin(2*math.Pi*0.1*t)+0.001*math.Sin(2*math.Pi*t+3*math.Pi/4))
+		w = append(w, 0.3)
+	}
+	var clear, calls, agree int
+	prev := PhaseUnknown
+	for end := 27.0; end <= 60; end += 0.5 {
+		n := int(end * fps)
+		got, err := Estimate(ts[:n], y[:n], w[:n], prev, DefaultConfig())
+		if err != nil {
+			t.Fatalf("window ending %.1f s: %v", end, err)
+		}
+		prev = got.Phase
+		c := math.Cos(2 * math.Pi * 0.1 * ts[n-1] / 1000)
+		if math.Abs(c) < 0.5 {
+			continue
+		}
+		clear++
+		if got.Phase == PhaseIn || got.Phase == PhaseOut {
+			calls++
+			if (got.Phase == PhaseIn) == (c > 0) {
+				agree++
+			}
+		}
+	}
+	if float64(calls) < 0.8*float64(clear) || agree < calls {
+		t.Fatalf("%d calls in %d clear moments, %d right: want at least 80%% calls and all right", calls, clear, agree)
+	}
+}
+
 func TestPhaseHoldWhenFlat(t *testing.T) {
 	ts, y, w := synthShoulders(6, 25, 30, 0, 0, 1)
 	last := y[len(y)-1]

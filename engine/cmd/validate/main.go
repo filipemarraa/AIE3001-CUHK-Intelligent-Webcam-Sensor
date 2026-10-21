@@ -26,7 +26,10 @@ func main() {
 	flag.Parse()
 
 	results := runSuite(*seeds, *only)
-	printTable(os.Stdout, results)
+	if _, err := io.WriteString(os.Stdout, table(results)); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if *jsonOut != "" {
 		if err := writeJSON(*jsonOut, results); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -53,14 +56,16 @@ func runSuite(seeds int, only string) []eval.Metrics {
 	return results
 }
 
-func printTable(w io.Writer, results []eval.Metrics) {
-	fmt.Fprintln(w, "| scenario | HR cov | HR MAE | HR P95 | HR false conf | 1st HR s | RR cov | RR MAE | phase calls | phase agree |")
-	fmt.Fprintln(w, "|---|---|---|---|---|---|---|---|---|---|")
+func table(results []eval.Metrics) string {
+	var b strings.Builder
+	b.WriteString("| scenario | HR cov | HR MAE | HR P95 | HR false conf | 1st HR s | RR cov | RR MAE | phase calls | phase agree |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, m := range results {
-		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", m.Scenario,
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", m.Scenario,
 			pct(m.HRCoverage), num(m.HRMAE), num(m.HRP95), pct(m.HRFalseConfident), num(m.FirstHRS),
 			pct(m.RRCoverage), num(m.RRMAE), pct(m.PhaseCallRate), pct(m.PhaseAgreement))
 	}
+	return b.String()
 }
 
 func num(v float64) string {

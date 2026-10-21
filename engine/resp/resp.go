@@ -40,7 +40,8 @@ type Config struct {
 	LowHz          float64
 	HighHz         float64
 	MinDurationS   float64
-	PhaseWindowS   float64
+	HoldWindowS    float64
+	HoldRatio      float64
 	EnterThreshold float64
 	ExitThreshold  float64
 	MinPeriodicity float64
@@ -54,7 +55,8 @@ func DefaultConfig() Config {
 		LowHz:          0.08,
 		HighHz:         0.5,
 		MinDurationS:   25,
-		PhaseWindowS:   0.5,
+		HoldWindowS:    2,
+		HoldRatio:      0.15,
 		EnterThreshold: 0.2,
 		ExitThreshold:  0.1,
 		MinPeriodicity: 0.5,
@@ -104,9 +106,24 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 		return Breath{}, ErrUnreliable
 	}
 
-	// The band-passed tail rings at the window edge, so the slope comes from the lightly smoothed signal instead.
-	d := tailSlope(detrended, cfg) / stddev(filtered)
-	return Breath{RPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Periodicity: periodicity, Phase: nextPhase(d, prev, cfg)}, nil
+	return Breath{
+		RPM: peak.FreqHz * 60, SNRdB: peak.SNRdB, Periodicity: periodicity,
+		Phase: phase(detrended, peak.FreqHz, prev, cfg),
+	}, nil
+}
+
+// phase reads the direction from a sinusoid fitted at the breathing frequency over the last cycle: a matched filter
+// that rejects faster motion such as the heartbeat and does not ring at the window edge like a band-pass filter.
+// A flat recent slope, relative to that sinusoid, means a pause or a turning point.
+func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
+	omega := 2 * math.Pi * freqHz
+	d, amp := sinusoidAtEnd(x, freqHz, cfg.SampleRateHz)
+	// Past a quarter period the slope window averages rising and falling parts and fakes a pause.
+	window := min(cfg.HoldWindowS, 0.25/freqHz)
+	if amp == 0 || math.Abs(linearSlope(x, int(math.Round(window*cfg.SampleRateHz)), cfg.SampleRateHz)) < cfg.HoldRatio*amp*omega {
+		return PhaseHold
+	}
+	return nextPhase(d, prev, cfg)
 }
 
 func nextPhase(d float64, prev Phase, cfg Config) Phase {
@@ -123,36 +140,83 @@ func nextPhase(d float64, prev Phase, cfg Config) Phase {
 	return prev
 }
 
-// tailSlope is the least-squares slope, per second, over the last PhaseWindowS of x after a moving average of the
-// same length. The average is centred, and shrinks towards the end of the window instead of reaching past it.
-func tailSlope(x []float64, cfg Config) float64 {
-	m := max(2, int(math.Round(cfg.PhaseWindowS*cfg.SampleRateHz)))
-	m = min(m, len(x))
-	half := m / 2
-	smooth := make([]float64, m)
-	for k := range smooth {
-		i := len(x) - m + k
-		lo, hi := max(0, i-half), min(len(x)-1, i+half)
-		var sum float64
-		for j := lo; j <= hi; j++ {
-			sum += x[j]
+// sinusoidAtEnd fits a·cos(ωt) + b·sin(ωt) + c over the last period of x and returns the slope of the sinusoid at
+// the last sample divided by its peak slope (so in [-1, 1], positive while rising) and its amplitude.
+func sinusoidAtEnd(x []float64, freqHz, fs float64) (d, amp float64) {
+	n := min(len(x), max(4, int(math.Round(fs/freqHz))))
+	seg := x[len(x)-n:]
+	omega := 2 * math.Pi * freqHz / fs
+	var m [3][4]float64
+	for k, v := range seg {
+		basis := [3]float64{math.Cos(omega * float64(k)), math.Sin(omega * float64(k)), 1}
+		for i := range 3 {
+			for j := range 3 {
+				m[i][j] += basis[i] * basis[j]
+			}
+			m[i][3] += basis[i] * v
 		}
-		smooth[k] = sum / float64(hi-lo+1)
 	}
+	coef, ok := solve3(m)
+	if !ok {
+		return 0, 0
+	}
+	a, b := coef[0], coef[1]
+	amp = math.Hypot(a, b)
+	if amp == 0 {
+		return 0, 0
+	}
+	end := omega * float64(n-1)
+	return (-a*math.Sin(end) + b*math.Cos(end)) / amp, amp
+}
+
+// solve3 solves a 3x3 linear system given as an augmented matrix, by Gaussian elimination with partial pivoting.
+func solve3(m [3][4]float64) ([3]float64, bool) {
+	for col := range 3 {
+		pivot := col
+		for r := col + 1; r < 3; r++ {
+			if math.Abs(m[r][col]) > math.Abs(m[pivot][col]) {
+				pivot = r
+			}
+		}
+		if math.Abs(m[pivot][col]) < 1e-12 {
+			return [3]float64{}, false
+		}
+		m[col], m[pivot] = m[pivot], m[col]
+		for r := col + 1; r < 3; r++ {
+			f := m[r][col] / m[col][col]
+			for c := col; c < 4; c++ {
+				m[r][c] -= f * m[col][c]
+			}
+		}
+	}
+	var out [3]float64
+	for r := 2; r >= 0; r-- {
+		v := m[r][3]
+		for c := r + 1; c < 3; c++ {
+			v -= m[r][c] * out[c]
+		}
+		out[r] = v / m[r][r]
+	}
+	return out, true
+}
+
+// linearSlope is the least-squares slope, per second, over the last n samples of x.
+func linearSlope(x []float64, n int, fs float64) float64 {
+	n = min(max(n, 2), len(x))
+	seg := x[len(x)-n:]
 	var sumT, sumY, sumTT, sumTY float64
-	for k, y := range smooth {
-		t := float64(k) / cfg.SampleRateHz
+	for k, y := range seg {
+		t := float64(k) / fs
 		sumT += t
 		sumY += y
 		sumTT += t * t
 		sumTY += t * y
 	}
-	n := float64(m)
-	den := n*sumTT - sumT*sumT
+	den := float64(n)*sumTT - sumT*sumT
 	if den == 0 {
 		return 0
 	}
-	return (n*sumTY - sumT*sumY) / den
+	return (float64(n)*sumTY - sumT*sumY) / den
 }
 
 // autocorrelation is the normalised correlation of x with itself shifted by lag samples, in [-1, 1].
@@ -170,17 +234,4 @@ func autocorrelation(x []float64, lag int) float64 {
 		return 0
 	}
 	return xy / math.Sqrt(xx*yy)
-}
-
-func stddev(x []float64) float64 {
-	var mean float64
-	for _, v := range x {
-		mean += v
-	}
-	mean /= float64(len(x))
-	var ss float64
-	for _, v := range x {
-		ss += (v - mean) * (v - mean)
-	}
-	return math.Sqrt(ss / float64(len(x)))
 }
