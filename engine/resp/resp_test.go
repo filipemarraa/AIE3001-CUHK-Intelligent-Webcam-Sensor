@@ -363,8 +363,9 @@ func TestStrongPeriodicNoiseDoesNotLatchAHold(t *testing.T) {
 func TestPhaseHoldDuringAPauseWithLandmarkNoise(t *testing.T) {
 	const fps = 30.0
 	noises := map[string]func(t float64, rng *rand.Rand) float64{
-		"5 Hz":  func(t float64, _ *rand.Rand) float64 { return 0.0005 * math.Cos(2*math.Pi*5*t) },
-		"white": func(_ float64, rng *rand.Rand) float64 { return 0.0005 * rng.NormFloat64() },
+		"5 Hz":        func(t float64, _ *rand.Rand) float64 { return 0.0005 * math.Cos(2*math.Pi*5*t) },
+		"white":       func(_ float64, rng *rand.Rand) float64 { return 0.0005 * rng.NormFloat64() },
+		"strong 5 Hz": func(t float64, _ *rand.Rand) float64 { return 0.001 * math.Cos(2*math.Pi*5*t) },
 	}
 	for name, noise := range noises {
 		for _, rpm := range []float64{6, 10, 15} {

@@ -132,20 +132,25 @@ func phase(x, raw []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	// Only a stretch that is actually still can be a pause, and the breathing is fitted before it, so a long pause
 	// does not leak into the reference it is compared with.
 	w := stillSamples(x, raw, m, heartHz, cfg)
-	// A pause already called holds while the shoulders stay still for longer than any turning point does, so one noisy
-	// window cannot flip it back; but only while a straight line still explains that stretch at least as well as the
-	// breathing would, or noise that raises the stillness limits could latch the hold during breathing.
-	if prev == PhaseHold && w >= 2*m && len(x) > w+fit.n {
-		if before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz); ok &&
-			stillFavoured(x[len(x)-w:], before.next(w), heartHz, cfg) {
-			return PhaseHold
-		}
+	if w < m || len(x) <= w+fit.n {
+		return nextPhase(fit.direction(), prev, cfg)
 	}
-	if w >= m && len(x) > w+fit.n {
-		before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
-		if ok && paused(x[len(x)-w:], before.next(w), before.amp, heartHz, cfg) {
-			return PhaseHold
-		}
+	before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
+	if !ok {
+		return nextPhase(fit.direction(), prev, cfg)
+	}
+	// Noise can stretch w back into the breathing before the pause, so the comparison looks only at the most recent
+	// part of the still stretch, against the breathing projected from before it.
+	k := min(w, 2*m)
+	observed, predicted := x[len(x)-k:], before.next(w)[w-k:]
+	// A pause already called holds while the shoulders stay still for longer than any turning point does, so one noisy
+	// window cannot flip it back; but only while a straight line still explains the recent stretch at least as well as
+	// the breathing would, or noise that raises the stillness limits could latch the hold during breathing.
+	if prev == PhaseHold && w >= 2*m && stillFavoured(observed, predicted, heartHz, cfg) {
+		return PhaseHold
+	}
+	if paused(observed, predicted, before.amp, heartHz, cfg) {
+		return PhaseHold
 	}
 	return nextPhase(fit.direction(), prev, cfg)
 }
