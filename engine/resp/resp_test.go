@@ -154,69 +154,100 @@ func TestPhaseIgnoresCardiacMotionOfTheShoulders(t *testing.T) {
 	}
 }
 
-func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
-	for _, rpm := range []float64{6, 15} {
-		f := rpm / 60
-		ts, y, w := synthShoulders(rpm, 60, 30, 0, 0, 1)
-		for end := 27.0; end <= 60; end += 0.1 {
-			n := int(end * 30)
-			got, err := Estimate(ts[:n], y[:n], w[:n], PhaseUnknown, DefaultConfig())
-			if err != nil {
-				t.Fatalf("%v rpm, window ending %.1f s: %v", rpm, end, err)
-			}
-			speed := math.Abs(math.Cos(2 * math.Pi * f * ts[n-1] / 1000))
-			if speed > 0.5 && got.Phase == PhaseHold {
-				t.Errorf("%v rpm at %.1f s: hold while breathing at %.0f%% of its peak speed", rpm, end, 100*speed)
-			}
+// shoulderSeries breathes at rpm until pauseAtS (then holds still, if pauseAtS < durationS), with the heartbeat
+// moving the shoulders by tremor at tremorHz and tremorPhase the whole time.
+func shoulderSeries(rpm, durationS, pauseAtS, tremor, tremorHz, tremorPhase, noise float64) (ts, y, w []float64) {
+	const fps = 30.0
+	rng := rand.New(rand.NewPCG(uint64(rpm*1000+pauseAtS), uint64(tremorHz*1000+tremorPhase)))
+	f := rpm / 60
+	var held float64
+	for i := 0; i < int(durationS*fps); i++ {
+		t := float64(i) / fps
+		breath := 0.6 - 0.004*math.Sin(2*math.Pi*f*t)
+		if t < pauseAtS {
+			held = breath
+		} else {
+			breath = held
 		}
-	}
-}
-
-func TestPhaseHoldWhenFlat(t *testing.T) {
-	for _, startS := range []float64{25, 25.3, 25.6, 26, 26.8, 27.5} {
-		ts, y, w := synthShoulders(6, startS, 30, 0, 0, 1)
-		last := y[len(y)-1]
-		for i := 1; i <= 90; i++ {
-			ts = append(ts, ts[len(ts)-1]+1000.0/30)
-			y = append(y, last)
-			w = append(w, 0.3)
-		}
-		got, err := Estimate(ts, y, w, PhaseIn, DefaultConfig())
-		if err != nil {
-			t.Fatalf("pause from %.1f s: %v", startS, err)
-		}
-		if got.Phase != PhaseHold {
-			t.Errorf("pause from %.1f s: got %v, want hold", startS, got.Phase)
-		}
-	}
-}
-
-func TestPhaseHoldDuringAPauseWithCardiacMotion(t *testing.T) {
-	for _, hz := range []float64{0.8, 1, 1.3, 2} {
-		for _, startS := range []float64{25, 25.6, 26.4, 27.5} {
-			assertPauseWithTremor(t, startS, hz)
-		}
-	}
-}
-
-func assertPauseWithTremor(t *testing.T, startS, hz float64) {
-	t.Helper()
-	ts, y, w := synthShoulders(6, startS, 30, 0, 0, 1)
-	last := y[len(y)-1]
-	for i := 1; i <= 90; i++ {
-		ts = append(ts, ts[len(ts)-1]+1000.0/30)
-		y = append(y, last)
+		ts = append(ts, t*1000)
+		y = append(y, breath+tremor*math.Sin(2*math.Pi*tremorHz*t+tremorPhase)+noise*rng.NormFloat64())
 		w = append(w, 0.3)
 	}
-	for i := range y {
-		y[i] += 0.001 * math.Sin(2*math.Pi*hz*ts[i]/1000+3*math.Pi/4)
+	return ts, y, w
+}
+
+var tremors = []struct{ amp, hz float64 }{{0, 0}, {0.001, 0.7}, {0.001, 1}, {0.001, 1.3}, {0.001, 2}}
+
+// estimateAlong calls Estimate twice a second up to endS, carrying the phase like the session does, and returns the
+// phase at each of the given times.
+func estimateAlong(t *testing.T, ts, y, w []float64, fromS, endS float64, at ...float64) map[float64]Phase {
+	t.Helper()
+	out := map[float64]Phase{}
+	prev := PhaseUnknown
+	for end := fromS; end <= endS+1e-9; end += 0.5 {
+		n := int(end * 30)
+		got, err := Estimate(ts[:n], y[:n], w[:n], prev, DefaultConfig())
+		if err != nil {
+			t.Fatalf("window ending %.1f s: %v", end, err)
+		}
+		prev = got.Phase
+		for _, a := range at {
+			if _, seen := out[a]; !seen && end >= a {
+				out[a] = got.Phase
+			}
+		}
 	}
-	got, err := Estimate(ts, y, w, PhaseIn, DefaultConfig())
-	if err != nil {
-		t.Fatalf("pause from %.1f s, %v Hz tremor: %v", startS, hz, err)
+	return out
+}
+
+func TestPhaseHoldDuringPauses(t *testing.T) {
+	for _, rpm := range []float64{6, 10, 15, 24} {
+		period := 60 / rpm
+		for _, frac := range []float64{0, 0.13, 0.27, 0.4, 0.55, 0.7, 0.85} {
+			pauseAt := 25 + frac*period
+			for _, tr := range tremors {
+				noises := []float64{0}
+				// Strong heartbeat motion together with landmark noise can delay a pause past 4 s; each alone cannot.
+				if tr.amp == 0 {
+					noises = append(noises, 0.0002)
+				}
+				for _, noise := range noises {
+					ts, y, w := shoulderSeries(rpm, pauseAt+5, pauseAt, tr.amp, tr.hz, 3*math.Pi/4, noise)
+					got := estimateAlong(t, ts, y, w, 25.5, pauseAt+4.5, pauseAt+3, pauseAt+4)
+					for _, after := range []float64{3, 4} {
+						if p := got[pauseAt+after]; p != PhaseHold {
+							t.Errorf("%v rpm, pause from %.2f s, tremor %v Hz, noise %v: %v s in got %v, want hold",
+								rpm, pauseAt, tr.hz, noise, after, p)
+						}
+					}
+				}
+			}
+		}
 	}
-	if got.Phase != PhaseHold {
-		t.Errorf("pause from %.1f s with a %v Hz heartbeat moving the shoulders: got %v, want hold", startS, hz, got.Phase)
+}
+
+func TestPhaseIsNotHoldWhileBreathingContinues(t *testing.T) {
+	for _, rpm := range []float64{6, 10, 15, 24} {
+		f := rpm / 60
+		for _, tr := range tremors {
+			for _, tremorPhase := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2} {
+				ts, y, w := shoulderSeries(rpm, 45, 1e9, tr.amp, tr.hz, tremorPhase, 0.0005)
+				prev := PhaseUnknown
+				for end := 25.5; end <= 45; end += 0.1 {
+					n := int(end * 30)
+					got, err := Estimate(ts[:n], y[:n], w[:n], prev, DefaultConfig())
+					if err != nil {
+						t.Fatalf("%v rpm at %.1f s: %v", rpm, end, err)
+					}
+					prev = got.Phase
+					speed := math.Abs(math.Cos(2 * math.Pi * f * ts[n-1] / 1000))
+					if end >= 27 && speed > 0.5 && got.Phase == PhaseHold {
+						t.Errorf("%v rpm, tremor %v Hz phase %.2f, at %.1f s: hold while breathing at %.0f%% of peak speed",
+							rpm, tr.hz, tremorPhase, end, 100*speed)
+					}
+				}
+			}
+		}
 	}
 }
 

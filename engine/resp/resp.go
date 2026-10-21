@@ -56,7 +56,7 @@ func DefaultConfig() Config {
 		HighHz:         0.5,
 		MinDurationS:   25,
 		HoldWindowS:    2,
-		HoldRatio:      0.15,
+		HoldRatio:      0.05,
 		EnterThreshold: 0.2,
 		ExitThreshold:  0.1,
 		MinPeriodicity: 0.5,
@@ -114,38 +114,163 @@ func Estimate(tsMs, shoulderY, shoulderW []float64, prev Phase, cfg Config) (Bre
 
 // phase reads the direction from a sinusoid fitted at the breathing frequency over the last cycle: a matched filter
 // that rejects faster motion such as the heartbeat and does not ring at the window edge like a band-pass filter.
-// Turning points come out as hold through the hysteresis on that direction. A real pause is a recent window that a
-// flat line explains much better than the sinusoid does; a turning point while breathing goes on is still explained by
-// the sinusoid, whatever the mean slope of the window.
+// Turning points come out as hold through the hysteresis on that direction. A real pause is a recent window that does
+// not follow the breathing fitted just before it: fitting over the window itself would let the fit bend to the pause.
 func phase(x []float64, freqHz float64, prev Phase, cfg Config) Phase {
 	fit, ok := fitSinusoid(x, freqHz, cfg.SampleRateHz)
 	if !ok {
 		return PhaseHold
 	}
-	// A 1 s moving average nulls 1 Hz and damps the rest of the heartbeat band, which keeps moving the shoulders
-	// during a pause; the same average is applied to the sinusoid so the comparison stays fair.
-	smooth := max(1, int(math.Round(cfg.SampleRateHz)))
-	m := min(len(x)-smooth+1, max(3, int(math.Round(min(cfg.HoldWindowS, 0.25/freqHz)*cfg.SampleRateHz))))
-	if m >= 3 && paused(movingAverage(x[len(x)-m-smooth+1:], smooth), movingAverage(fit.tail(m+smooth-1), smooth), fit.amp, cfg) {
-		return PhaseHold
+	heartHz := heartbeatHz(x, cfg.SampleRateHz)
+	windowS := cfg.HoldWindowS
+	if heartHz > 0 {
+		// Two heartbeat cycles in the window keep its sinusoid from soaking up the slower breathing.
+		windowS = max(windowS, 2/heartHz)
+	}
+	m := max(3, int(math.Round(windowS*cfg.SampleRateHz)))
+	// A long pause would leak into the breathing fitted just before the window; fit before the still stretch instead.
+	w := max(m, stillSamples(x, m, heartHz, cfg))
+	if len(x) > w+fit.n {
+		before, ok := fitSinusoid(x[:len(x)-w], freqHz, cfg.SampleRateHz)
+		if ok && paused(x[len(x)-w:], before.next(w), before.amp, heartHz, cfg) {
+			return PhaseHold
+		}
 	}
 	return nextPhase(fit.direction(), prev, cfg)
 }
 
-// movingAverage returns the trailing means of n consecutive values: len(x)-n+1 of them.
-func movingAverage(x []float64, n int) []float64 {
-	out := make([]float64, 0, len(x)-n+1)
-	var sum float64
-	for i, v := range x {
-		sum += v
-		if i >= n {
-			sum -= x[i-n]
+// stillSamples is the length of the trailing stretch of x, at least m samples and at most half of x, over which the
+// shoulders hold still: what is left after a straight line and the heartbeat is small next to the breathing amplitude
+// of the whole window, and so is the drift of that line. It returns 0 when the last m samples already move.
+func stillSamples(x []float64, m int, heartHz float64, cfg Config) int {
+	var mean, ss float64
+	for _, v := range x {
+		mean += v
+	}
+	mean /= float64(len(x))
+	for _, v := range x {
+		ss += (v - mean) * (v - mean)
+	}
+	amp := math.Sqrt(2 * ss / float64(len(x)))
+	step := max(1, int(math.Round(cfg.SampleRateHz/2)))
+	still := 0
+	for n := m; n <= len(x)/2; n += step {
+		seg := x[len(x)-n:]
+		resid, drift := lineFit(seg, heartHz, cfg.SampleRateHz)
+		if math.Sqrt(resid/float64(n)) > stillResidual*amp || math.Abs(drift) > stillDrift*amp {
+			break
 		}
-		if i >= n-1 {
-			out = append(out, sum/float64(n))
+		still = n
+	}
+	return still
+}
+
+const (
+	stillResidual = 0.1
+	stillDrift    = 0.1
+)
+
+// lineFit fits a straight line plus the heartbeat sinusoid to x and returns the squared error left and how far the
+// line moves across x.
+func lineFit(x []float64, heartHz, fs float64) (resid, drift float64) {
+	n := len(x)
+	cols := heartColumns(n, heartHz, fs, true)
+	coef, err := leastSquares(x, cols)
+	return err, coef[1] * float64(n-1)
+}
+
+// heartColumns are the regressors of a line (when withRamp) or a constant, plus the heartbeat sinusoid when known.
+func heartColumns(n int, heartHz, fs float64, withRamp bool) [][]float64 {
+	ones := make([]float64, n)
+	for k := range ones {
+		ones[k] = 1
+	}
+	cols := [][]float64{ones}
+	if withRamp {
+		ramp := make([]float64, n)
+		for k := range ramp {
+			ramp[k] = float64(k)
+		}
+		cols = append(cols, ramp)
+	}
+	if heartHz > 0 {
+		omega := 2 * math.Pi * heartHz / fs
+		hc, hs := make([]float64, n), make([]float64, n)
+		for k := range hc {
+			hc[k], hs[k] = math.Cos(omega*float64(k)), math.Sin(omega*float64(k))
+		}
+		cols = append(cols, hc, hs)
+	}
+	return cols
+}
+
+// heartbeatHz is the frequency at which the heartbeat visibly moves the shoulders, above the breathing band, or 0 when
+// no such motion stands out.
+func heartbeatHz(x []float64, fs float64) float64 {
+	peak, err := dsp.DominantFrequency(x, fs, 0.6, min(3, 0.45*fs))
+	if err != nil || peak.SNRdB < minHeartbeatSNRdB {
+		return 0
+	}
+	return peak.FreqHz
+}
+
+const minHeartbeatSNRdB = 6
+
+// paused asks whether a straight line explains the recent samples better than the breathing continued from before
+// would, by a margin that is a share of how much that breathing moves in the window. Both models also get a sinusoid at
+// the heartbeat frequency, so the heartbeat moving the shoulders is absorbed equally by both and cannot tip the
+// balance. A window in which the predicted breathing barely moves (a turning point) is left to the hysteresis.
+func paused(observed, predicted []float64, amp, heartHz float64, cfg Config) bool {
+	n := len(observed)
+	var mean float64
+	for _, v := range predicted {
+		mean += v
+	}
+	mean /= float64(n)
+	var spread float64
+	for _, v := range predicted {
+		spread += (v - mean) * (v - mean)
+	}
+	if spread < float64(n)*cfg.HoldRatio*cfg.HoldRatio*amp*amp {
+		return false
+	}
+	residual := make([]float64, n)
+	for k := range residual {
+		residual[k] = observed[k] - predicted[k]
+	}
+	_, errBreathing := leastSquares(residual, heartColumns(n, heartHz, cfg.SampleRateHz, false))
+	_, errLine := leastSquares(observed, heartColumns(n, heartHz, cfg.SampleRateHz, true))
+	// The ratio keeps noise alone, which both models explain about as badly, from passing for a pause.
+	return errBreathing-errLine >= 0.5*spread && errBreathing >= 3*errLine
+}
+
+// leastSquares fits y with a combination of the given columns and returns the coefficients and the squared error left.
+func leastSquares(y []float64, columns [][]float64) ([]float64, float64) {
+	p := len(columns)
+	m := make([][]float64, p)
+	for i := range m {
+		m[i] = make([]float64, p+1)
+		for j := range p {
+			for k := range y {
+				m[i][j] += columns[i][k] * columns[j][k]
+			}
+		}
+		for k := range y {
+			m[i][p] += columns[i][k] * y[k]
 		}
 	}
-	return out
+	coef, ok := solve(m)
+	if !ok {
+		coef = make([]float64, p)
+	}
+	var e float64
+	for k, v := range y {
+		for i, c := range coef {
+			v -= c * columns[i][k]
+		}
+		e += v * v
+	}
+	return coef, e
 }
 
 func nextPhase(d float64, prev Phase, cfg Config) Phase {
@@ -160,30 +285,6 @@ func nextPhase(d float64, prev Phase, cfg Config) Phase {
 		return PhaseHold
 	}
 	return prev
-}
-
-// paused compares how well a flat line and the fitted sinusoid (with its own offset) explain the recent samples.
-func paused(observed, model []float64, amp float64, cfg Config) bool {
-	if stddev(model) < cfg.HoldRatio*0.1*amp {
-		return false
-	}
-	var offset float64
-	for i := range observed {
-		offset += observed[i] - model[i]
-	}
-	offset /= float64(len(observed))
-	mean := 0.0
-	for _, v := range observed {
-		mean += v
-	}
-	mean /= float64(len(observed))
-	var errFlat, errModel float64
-	for i, v := range observed {
-		errFlat += (v - mean) * (v - mean)
-		r := v - model[i] - offset
-		errModel += r * r
-	}
-	return errModel > 2*errFlat
 }
 
 // sinusoid is a·cos(ωk) + b·sin(ωk) over sample index k, fitted to the last n samples of a signal.
@@ -202,11 +303,11 @@ func (s sinusoid) direction() float64 {
 	return (-s.a*math.Sin(end) + s.b*math.Cos(end)) / s.amp
 }
 
-// tail returns the last m values of the fitted sinusoid.
-func (s sinusoid) tail(m int) []float64 {
+// next continues the fitted sinusoid for m samples past the segment it was fitted on.
+func (s sinusoid) next(m int) []float64 {
 	out := make([]float64, m)
 	for i := range out {
-		out[i] = s.at(s.n - m + i)
+		out[i] = s.at(s.n + i)
 	}
 	return out
 }
@@ -216,7 +317,7 @@ func fitSinusoid(x []float64, freqHz, fs float64) (sinusoid, bool) {
 	n := min(len(x), max(4, int(math.Round(fs/freqHz))))
 	seg := x[len(x)-n:]
 	omega := 2 * math.Pi * freqHz / fs
-	var m [3][4]float64
+	m := [][]float64{make([]float64, 4), make([]float64, 4), make([]float64, 4)}
 	for k, v := range seg {
 		basis := [3]float64{math.Cos(omega * float64(k)), math.Sin(omega * float64(k)), 1}
 		for i := range 3 {
@@ -226,7 +327,7 @@ func fitSinusoid(x []float64, freqHz, fs float64) (sinusoid, bool) {
 			m[i][3] += basis[i] * v
 		}
 	}
-	coef, ok := solve3(m)
+	coef, ok := solve(m)
 	if !ok {
 		return sinusoid{}, false
 	}
@@ -234,30 +335,31 @@ func fitSinusoid(x []float64, freqHz, fs float64) (sinusoid, bool) {
 	return s, s.amp > 0
 }
 
-// solve3 solves a 3x3 linear system given as an augmented matrix, by Gaussian elimination with partial pivoting.
-func solve3(m [3][4]float64) ([3]float64, bool) {
-	for col := range 3 {
+// solve solves a square linear system given as an augmented matrix, by Gaussian elimination with partial pivoting.
+func solve(m [][]float64) ([]float64, bool) {
+	n := len(m)
+	for col := range n {
 		pivot := col
-		for r := col + 1; r < 3; r++ {
+		for r := col + 1; r < n; r++ {
 			if math.Abs(m[r][col]) > math.Abs(m[pivot][col]) {
 				pivot = r
 			}
 		}
 		if math.Abs(m[pivot][col]) < 1e-12 {
-			return [3]float64{}, false
+			return nil, false
 		}
 		m[col], m[pivot] = m[pivot], m[col]
-		for r := col + 1; r < 3; r++ {
+		for r := col + 1; r < n; r++ {
 			f := m[r][col] / m[col][col]
-			for c := col; c < 4; c++ {
+			for c := col; c <= n; c++ {
 				m[r][c] -= f * m[col][c]
 			}
 		}
 	}
-	var out [3]float64
-	for r := 2; r >= 0; r-- {
-		v := m[r][3]
-		for c := r + 1; c < 3; c++ {
+	out := make([]float64, n)
+	for r := n - 1; r >= 0; r-- {
+		v := m[r][n]
+		for c := r + 1; c < n; c++ {
 			v -= m[r][c] * out[c]
 		}
 		out[r] = v / m[r][r]
@@ -280,17 +382,4 @@ func autocorrelation(x []float64, lag int) float64 {
 		return 0
 	}
 	return xy / math.Sqrt(xx*yy)
-}
-
-func stddev(x []float64) float64 {
-	var mean float64
-	for _, v := range x {
-		mean += v
-	}
-	mean /= float64(len(x))
-	var ss float64
-	for _, v := range x {
-		ss += (v - mean) * (v - mean)
-	}
-	return math.Sqrt(ss / float64(len(x)))
 }
