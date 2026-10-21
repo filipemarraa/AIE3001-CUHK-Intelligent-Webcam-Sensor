@@ -22,6 +22,11 @@ describe('isFromWorker', () => {
       isFromWorker({ type: 'diagnostics', diagnostics: { frameCostMs: 3, droppedFrames: 0, pulse: [0.1, 0.2] } }),
     ).toBe(true);
     expect(isFromWorker({ type: 'error', code: 'wasm_failed', message: 'x' })).toBe(true);
+    expect(isFromWorker({ type: 'samples', rows: [[1, 2, 3]] })).toBe(true);
+  });
+
+  it('rejects recorded samples that carry a typed array', () => {
+    expect(isFromWorker({ type: 'samples', rows: [new Float64Array(3)] })).toBe(false);
   });
 
   it('rejects unknown type and non-objects', () => {

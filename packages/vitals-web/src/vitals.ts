@@ -144,6 +144,9 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
         emit('diagnostics', { ...m.diagnostics, droppedFrames: s.dropped });
         s.dropped = 0;
         break;
+      case 'samples':
+        options.onSamples?.(m.rows);
+        break;
       case 'error':
         fail(s, { code: m.code, message: m.message });
         break;
@@ -165,7 +168,11 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
       s.readyTimer = setTimeout(() => {
         fail(s, { code: 'vision_failed', message: 'worker did not become ready' });
       }, READY_TIMEOUT_MS);
-      worker.postMessage({ type: 'init', assetsBaseUrl } satisfies ToWorker);
+      worker.postMessage({
+        type: 'init',
+        assetsBaseUrl,
+        ...(options.onSamples === undefined ? {} : { record: true }),
+      } satisfies ToWorker);
     });
   }
 

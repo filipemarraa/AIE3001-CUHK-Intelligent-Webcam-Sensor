@@ -92,6 +92,7 @@ const POSE: Point[] = Array.from({ length: 33 }, (_, i) =>
 );
 
 interface SetupOptions {
+  record?: boolean;
   faces?: () => Point[][];
   pose?: () => Point[] | null;
   estimate?: () => Decoded;
@@ -120,7 +121,7 @@ function setup(opts: SetupOptions = {}) {
   const post = vi.fn((m: FromWorker) => {
     posted.push(m);
   });
-  const sensor = createSensor({ face, pose, engine, post, now: () => clock.t });
+  const sensor = createSensor({ face, pose, engine, post, now: () => clock.t, record: opts.record ?? false });
   const px = image();
   const rects: Box[] = [];
   const pixels = (rect: Box): Uint8ClampedArray => {
@@ -140,6 +141,32 @@ afterEach(() => {
 });
 
 describe('createSensor', () => {
+  it('posts the numeric samples of the last second with the estimate when recording', () => {
+    const s = setup({ record: true });
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 996;
+    s.frame(10_033);
+    const samples = s.posted.find((m) => m.type === 'samples');
+    expect(samples !== undefined && isFromWorker(samples)).toBe(true);
+    const rows = samples?.type === 'samples' ? samples.rows : [];
+    expect(rows.map((r) => r[SAMPLE.timeMs])).toEqual([10_000, 10_033]);
+    expect(rows.every((r) => r.length === SAMPLE.length)).toBe(true);
+    s.clock.t = 2100;
+    s.frame(10_066);
+    const later = s.posted.filter((m) => m.type === 'samples').at(-1);
+    expect(later?.type === 'samples' ? later.rows.map((r) => r[SAMPLE.timeMs]) : []).toEqual([10_066]);
+  });
+
+  it('posts no samples unless recording', () => {
+    const s = setup();
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 2100;
+    s.frame(10_033);
+    expect(s.posted.some((m) => m.type === 'samples')).toBe(false);
+  });
+
   it('reduces a frame with a face to one sample, then posts frameDone', () => {
     const s = setup();
     s.frame(1234);

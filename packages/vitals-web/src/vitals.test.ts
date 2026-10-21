@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Diagnostics, Estimate, VitalsError, VitalsState } from './types.js';
+import type { Diagnostics, Estimate, VitalsError, VitalsOptions, VitalsState } from './types.js';
 import { createVitals } from './vitals.js';
 import type { FromWorker, ToWorker } from './worker/protocol.js';
 import { FakeStream, FakeVideo, FakeVideoFrame, deferred, domError, fakeMedia } from './test/media.js';
@@ -39,11 +39,14 @@ function valid(hrBpm: number, quality: number, rrRpm = 12): Estimate {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-function setup(camera: () => Promise<FakeStream> = () => Promise.resolve(new FakeStream())) {
+function setup(
+  camera: () => Promise<FakeStream> = () => Promise.resolve(new FakeStream()),
+  extra: Partial<VitalsOptions> = {},
+) {
   const workers: FakeWorker[] = [];
   const { media, getUserMedia } = fakeMedia(camera);
   const vitals = createVitals(
-    { assetsBaseUrl: '/vitals/assets/' },
+    { assetsBaseUrl: '/vitals/assets/', ...extra },
     {
       createWorker: () => {
         const w = new FakeWorker();
@@ -111,6 +114,22 @@ describe('createVitals', () => {
     t.worker().send({ type: 'ready' });
     await started;
     expect(t.states).toEqual(['starting', 'calibrating']);
+  });
+
+  it('asks the worker to record only with onSamples, and hands the rows over', async () => {
+    const onSamples = vi.fn();
+    const t = setup(undefined, { onSamples });
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    expect(t.worker().posted[0]?.msg).toEqual({
+      type: 'init',
+      assetsBaseUrl: 'http://localhost:4200/vitals/assets',
+      record: true,
+    });
+    t.worker().send({ type: 'ready' });
+    await started;
+    t.worker().send({ type: 'samples', rows: [[1, 2, 3]] });
+    expect(onSamples).toHaveBeenCalledWith([[1, 2, 3]]);
   });
 
   it('measures on the first estimate that is not invalid', async () => {

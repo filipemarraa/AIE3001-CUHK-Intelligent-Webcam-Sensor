@@ -22,6 +22,7 @@ export interface SensorDeps {
   engine: Engine;
   post: (m: FromWorker) => void;
   now: () => number;
+  record?: boolean;
 }
 
 export interface Sensor {
@@ -88,6 +89,7 @@ export function createSensor(deps: SensorDeps): Sensor {
   let second: number | null = null;
   let costSum = 0;
   let costCount = 0;
+  const recorded: number[][] = [];
   const reported = { vision: false, wasm: false };
 
   function sample(img: VisionImage, tMs: number, width: number, height: number, pixels: (r: Box) => Uint8ClampedArray) {
@@ -121,6 +123,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     if (s <= second) return;
     second = s;
     const { estimate, pulse } = deps.engine.estimate(tMs);
+    if (recorded.length > 0) post({ type: 'samples', rows: recorded.splice(0) });
     post({ type: 'estimate', estimate });
     const frameCostMs = costCount === 0 ? 0 : costSum / costCount;
     // droppedFrames is counted on the main thread, which never sends the frames it drops.
@@ -152,6 +155,7 @@ export function createSensor(deps: SensorDeps): Sensor {
           return;
         }
         try {
+          if (deps.record === true) recorded.push(Array.from(x));
           deps.engine.push(x);
           estimateOnNewSecond(deps.now(), tMs);
         } catch (e) {
@@ -168,6 +172,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     },
     reset() {
       deps.engine.reset();
+      recorded.length = 0;
       frames = 0;
       prevFace = null;
       held = null;
@@ -275,7 +280,7 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
   // The Go runtime has no close; once loaded it is kept and reused by a retried init.
   let engine: Engine | null = null;
 
-  async function init(assetsBaseUrl: string): Promise<void> {
+  async function init(assetsBaseUrl: string, record: boolean): Promise<void> {
     if (sensor !== null) {
       post({ type: 'ready' });
       return;
@@ -301,7 +306,14 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
       post({ type: 'error', code: 'vision_failed', message: errorMessage(d.reason) });
       return;
     }
-    sensor = createSensor({ face: d.value.face, pose: d.value.pose, engine: e.value, post: deps.post, now: deps.now });
+    sensor = createSensor({
+      face: d.value.face,
+      pose: d.value.pose,
+      engine: e.value,
+      post: deps.post,
+      now: deps.now,
+      record,
+    });
     post({ type: 'ready' });
   }
 
@@ -328,7 +340,7 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
   }
 
   return (m) => {
-    if (m.type === 'init') void init(m.assetsBaseUrl);
+    if (m.type === 'init') void init(m.assetsBaseUrl, m.record === true);
     else if (m.type === 'reset') sensor?.reset();
     else frame(m.frame, m.tMs);
   };

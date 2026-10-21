@@ -39,6 +39,8 @@ export interface ExerciseSummary {
 export interface VitalsOptions {
   assetsBaseUrl: string;
   method?: Method;
+  // For validation recordings: each second, the numeric samples (layout SAMPLE) behind the estimate. Never pixels.
+  onSamples?: (rows: number[][]) => void;
 }
 
 export interface Diagnostics {

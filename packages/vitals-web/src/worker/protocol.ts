@@ -1,16 +1,26 @@
 import type { Diagnostics, Estimate } from '../types.js';
 
 export type ToWorker =
-  { type: 'init'; assetsBaseUrl: string } | { type: 'frame'; frame: VideoFrame; tMs: number } | { type: 'reset' };
+  | { type: 'init'; assetsBaseUrl: string; record?: boolean }
+  | { type: 'frame'; frame: VideoFrame; tMs: number }
+  | { type: 'reset' };
 
 export type FromWorker =
   | { type: 'ready' }
   | { type: 'frameDone' }
   | { type: 'estimate'; estimate: Estimate }
   | { type: 'diagnostics'; diagnostics: Diagnostics }
+  | { type: 'samples'; rows: number[][] }
   | { type: 'error'; code: 'wasm_failed' | 'vision_failed'; message: string };
 
-const FROM_WORKER_TYPES: ReadonlySet<string> = new Set(['ready', 'frameDone', 'estimate', 'diagnostics', 'error']);
+const FROM_WORKER_TYPES: ReadonlySet<string> = new Set([
+  'ready',
+  'frameDone',
+  'estimate',
+  'diagnostics',
+  'samples',
+  'error',
+]);
 const FORBIDDEN_GLOBALS = ['ImageBitmap', 'VideoFrame', 'ImageData', 'OffscreenCanvas', 'Blob'] as const;
 
 function isForbidden(v: object): boolean {
