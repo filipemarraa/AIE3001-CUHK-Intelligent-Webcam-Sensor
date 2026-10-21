@@ -2,14 +2,15 @@ package quality
 
 const (
 	minFaceFraction = 0.8
-	maxMotionP90    = 0.05
-	minLight        = 40
-	goodLight       = 120
-	maxMouthStd     = 0.03
-	maxJitterMs     = 20
-	goodSNRdB       = 10
-	highQuality     = 0.75
-	mediumQuality   = 0.6
+	// Face landmark speed in interocular distances per second; per second so it does not depend on the frame rate.
+	maxMotionP90  = 0.75
+	minLight      = 40
+	goodLight     = 120
+	maxMouthStd   = 0.03
+	maxJitterMs   = 20
+	goodSNRdB     = 10
+	highQuality   = 0.75
+	mediumQuality = 0.6
 )
 
 type Confidence int

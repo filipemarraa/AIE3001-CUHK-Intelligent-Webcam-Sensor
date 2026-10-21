@@ -128,7 +128,8 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 
 	in := s.qualityInputs(hrFrom, ref)
 	hr, spanS, hrErr := s.heartRate(hrFrom, ref)
-	in.WarmingUp = spanS < s.cfg.WarmupS
+	// A window that yields no pulse after the warm-up is still settling, and the reason must say so.
+	in.WarmingUp = spanS < s.cfg.WarmupS || hrErr != nil
 	in.HasHR = hrErr == nil
 	if in.HasHR && isFinite(hr.SNRdB) {
 		in.SNRdB = hr.SNRdB
@@ -189,19 +190,28 @@ func (s *Session) qualityInputs(from int, ref float64) quality.Inputs {
 	var in quality.Inputs
 	var faces, lightSum float64
 	motion := s.stat[:0]
+	prevFaceMs := math.Inf(-1)
 	for i := from; i < s.n; i++ {
-		if x := s.at(i); x.Face {
-			faces++
-			lightSum += x.Light
-			motion = append(motion, x.Motion)
+		x := s.at(i)
+		if !x.Face {
+			continue
 		}
+		faces++
+		lightSum += x.Light
+		// Motion is the landmark displacement since the previous face frame; dividing by the time makes it a speed.
+		if dt := (x.TimeMs - prevFaceMs) / 1000; dt > 0 && !math.IsInf(prevFaceMs, -1) {
+			motion = append(motion, x.Motion/dt)
+		}
+		prevFaceMs = x.TimeMs
 	}
 	s.stat = motion
 	in.FaceFraction = faces / float64(s.n-from)
 	if faces > 0 {
 		in.LightMean = lightSum / faces
+	}
+	if len(motion) > 0 {
 		slices.Sort(motion)
-		in.MotionP90 = motion[int(math.Ceil(0.9*faces))-1]
+		in.MotionP90 = motion[int(math.Ceil(0.9*float64(len(motion))))-1]
 	}
 
 	mouth := s.stat[:0]

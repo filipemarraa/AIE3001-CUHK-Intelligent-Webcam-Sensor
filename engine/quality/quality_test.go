@@ -7,7 +7,7 @@ import (
 )
 
 func good() Inputs {
-	return Inputs{FaceFraction: 1, MotionP90: 0.01, LightMean: 130, MouthStd: 0.005, JitterMs: 3, SNRdB: 12, HasHR: true}
+	return Inputs{FaceFraction: 1, MotionP90: 0.1, LightMean: 130, MouthStd: 0.005, JitterMs: 3, SNRdB: 12, HasHR: true}
 }
 
 func TestAssessReasonPriority(t *testing.T) {
@@ -16,8 +16,8 @@ func TestAssessReasonPriority(t *testing.T) {
 		mod    func(*Inputs)
 		reason Reason
 	}{
-		{"no face beats motion", func(i *Inputs) { i.FaceFraction = 0.5; i.MotionP90 = 0.2 }, ReasonNoFace},
-		{"motion beats low light", func(i *Inputs) { i.MotionP90 = 0.2; i.LightMean = 10 }, ReasonMotion},
+		{"no face beats motion", func(i *Inputs) { i.FaceFraction = 0.5; i.MotionP90 = 3 }, ReasonNoFace},
+		{"motion beats low light", func(i *Inputs) { i.MotionP90 = 3; i.LightMean = 10 }, ReasonMotion},
 		{"low light beats talking", func(i *Inputs) { i.LightMean = 10; i.MouthStd = 0.1 }, ReasonLowLight},
 		{"talking beats warming up", func(i *Inputs) { i.MouthStd = 0.1; i.WarmingUp = true }, ReasonTalking},
 		{"warming up", func(i *Inputs) { i.WarmingUp = true }, ReasonWarmingUp},

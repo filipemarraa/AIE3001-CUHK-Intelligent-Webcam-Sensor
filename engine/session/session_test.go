@@ -129,6 +129,35 @@ func TestShouldersWithoutBreathingLeaveRRUnknown(t *testing.T) {
 	}
 }
 
+func TestHeartRateFailureAfterWarmupGivesAReason(t *testing.T) {
+	xs := synthSamples(72, 6, 20, 30)
+	for i := range xs {
+		xs[i].R, xs[i].G, xs[i].B = 150, 110, 90
+	}
+	s := New(DefaultConfig())
+	assertInvalid(t, s.Estimate(pushAll(s, xs)), quality.ReasonWarmingUp)
+}
+
+func TestMotionIsMeasuredPerSecond(t *testing.T) {
+	for _, tc := range []struct {
+		fps    float64
+		reason quality.Reason
+	}{
+		{30, quality.ReasonMotion},
+		{10, quality.ReasonNone},
+	} {
+		xs := synthSamples(72, 6, 20, tc.fps)
+		for i := range xs {
+			xs[i].Motion = 0.04
+		}
+		s := New(DefaultConfig())
+		e := s.Estimate(pushAll(s, xs))
+		if e.Reason != tc.reason {
+			t.Errorf("%v fps, 0.04 face widths per frame: reason %v, want %v", tc.fps, e.Reason, tc.reason)
+		}
+	}
+}
+
 func TestNoFaceInvalidates(t *testing.T) {
 	xs := synthSamples(72, 6, 25, 30)
 	for i := range xs {

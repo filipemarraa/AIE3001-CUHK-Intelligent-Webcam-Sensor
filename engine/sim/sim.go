@@ -44,8 +44,8 @@ type Scenario struct {
 	Motion      []Burst
 	MotionAmp   float64
 	MotionSpeed float64
-	Talking   []Burst
-	FaceLost  []Burst
+	Talking     []Burst
+	FaceLost    []Burst
 
 	ShoulderAmp   float64
 	ShoulderNoise float64
