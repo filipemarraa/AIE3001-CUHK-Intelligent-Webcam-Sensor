@@ -41,6 +41,28 @@ func TestBusyWorkerDropsFramesWithoutLongGaps(t *testing.T) {
 	}
 }
 
+func TestStallRateDoesNotDependOnWorkerLoad(t *testing.T) {
+	count := func(costMs float64) int {
+		sc := Base("x")
+		sc.DurationS = 600
+		sc.CostMs, sc.CostSDMs = costMs, 0
+		sc.StallEveryS, sc.StallMs = 20, 400
+		n := 0
+		xs := sc.Generate()
+		for i := 1; i < len(xs); i++ {
+			if xs[i].TimeMs-xs[i-1].TimeMs > 300 {
+				n++
+			}
+		}
+		return n
+	}
+	for _, cost := range []float64{10, 45, 70} {
+		if n := count(cost); n < 20 || n > 42 {
+			t.Errorf("cost %v ms: %d stalls in 600 s, want about 30 (one every 20 s)", cost, n)
+		}
+	}
+}
+
 func TestStallsCreateLongGaps(t *testing.T) {
 	sc := Base("x")
 	sc.CostMs, sc.CostSDMs = 45, 12

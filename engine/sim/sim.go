@@ -104,6 +104,10 @@ func (sc Scenario) Generate() []session.Sample {
 	prevT := 0.0
 	lastEmitted := math.Inf(-1)
 	busyUntil := math.Inf(-1)
+	nextStall := math.Inf(1)
+	if sc.StallEveryS > 0 {
+		nextStall = rng.ExpFloat64() * sc.StallEveryS
+	}
 	emitted := 0
 	var shoulderY, shoulderW float64
 	motionHz := 0.8 + 1.2*rng.Float64()
@@ -115,7 +119,13 @@ func (sc Scenario) Generate() []session.Sample {
 		if t < busyUntil {
 			continue
 		}
-		busyUntil = t + sc.frameCostS(rng)
+		cost := max(0, sc.CostMs+sc.CostSDMs*rng.NormFloat64())
+		// Stalls follow the clock, not the frames the worker accepts, so a busier worker does not stall less.
+		if t >= nextStall {
+			cost += sc.StallMs
+			nextStall = t + rng.ExpFloat64()*sc.StallEveryS
+		}
+		busyUntil = t + cost/1000
 
 		x := session.Sample{TimeMs: t * 1000}
 		if emitted%poseEveryNFrames == 0 {
@@ -147,14 +157,6 @@ func (sc Scenario) Generate() []session.Sample {
 		out = append(out, x)
 	}
 	return out
-}
-
-func (sc Scenario) frameCostS(rng *rand.Rand) float64 {
-	cost := max(0, sc.CostMs+sc.CostSDMs*rng.NormFloat64())
-	if sc.StallEveryS > 0 && rng.Float64() < 1/(sc.StallEveryS*sc.FPS) {
-		cost += sc.StallMs
-	}
-	return cost / 1000
 }
 
 func (sc Scenario) colour(t, cardiac, motionHz float64, rng *rand.Rand) (r, g, b float64) {
