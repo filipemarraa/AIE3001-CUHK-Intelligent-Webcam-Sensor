@@ -8,7 +8,7 @@ All of them, over 10 consecutive sessions:
 
 1. Every estimate with confidence `high` or `medium` is within ±5 bpm of the finger pulse oximeter reading taken at the same moment.
 2. No crash and no freeze: the app never needs a reload during or between sessions.
-3. Frame cost under 25 ms (mean, read from the transparency panel) and no sustained dropped frames (the counter does not keep rising second after second while the video plays smoothly).
+3. Frame cost under 25 ms (mean, read from the transparency panel) and no sustained dropped frames. The panel counter is the number of frames dropped since the previous reading, that is, per second: it must stay near zero (a few per second at most) and must not stay high second after second while the video plays smoothly.
 4. First estimate on screen within 15 s of pressing "Turn on camera".
 
 ## Setup (once per laptop)
@@ -39,7 +39,7 @@ All of them, over 10 consecutive sessions:
 ## Performance read (transparency panel)
 
 1. Start a session with a face in view, press "Show details".
-2. After 30 s read "Frame cost" three times, 10 s apart, and the "Dropped frames" counter, which is per second.
+2. After 30 s read "Frame cost" three times, 10 s apart, and the "Dropped frames" counter (frames dropped since the previous reading, that is, per second).
 3. Record the numbers in the table below.
 
 If the mean frame cost is above 25 ms, the team decides on one of these mitigations (they are not applied today):
@@ -71,7 +71,7 @@ For each session:
 4. After the exercise, note the lighting condition (front light, mixed, dim) and a free-form skin-tone group on the Monk scale (1 to 10) only if the participant volunteers it.
 5. Save the readings under `data/` as CSV with the columns `session, t_s, oximeter_bpm, app_bpm, confidence, lighting`. The folder is gitignored: these are health data and never go to the repository.
 
-For the pass criterion, compare only rows where the confidence is `high` or `medium`. Rows with `low` or `invalid` must show no heart rate on screen at all (check the screen, not only the CSV).
+For the pass criterion, compare only rows where the confidence is `high` or `medium`. Rows with `low` are recorded but excluded from the ±5 bpm criterion (the screen still shows a value for them). Rows with `invalid` must show no heart rate on screen at all (check the screen, not only the CSV).
 
 ### Session results
 

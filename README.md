@@ -155,7 +155,7 @@ The simulated module follows the same rules as the real one: 10 s of warm-up wit
 
 ## Privacy and ethics
 
-- Video frames never leave the vision worker; only numbers do. Nothing is stored or sent over the network.
+- Video frames never leave the sensor worker; only numbers do. Nothing is stored or sent over the network.
 - No face recognition and no biometric template: the face is located, never identified.
 - The camera starts only after explicit consent, with a visible indicator and a one-tap way out.
 - Feedback is abstract by default; the number appears on request.
