@@ -18,10 +18,12 @@ func main() {
 	sample := make([]float64, session.SampleLen)
 	out := make([]float64, session.OutMaxLen)
 	outBytes := make([]byte, session.OutMaxLen*f64)
+	uint8Array := js.Global().Get("Uint8Array")
+	isBytes := func(v js.Value) bool { return v.Type() == js.TypeObject && v.InstanceOf(uint8Array) }
 
-	// A malformed sample is dropped, never a panic: a panic would end the Go runtime for the whole page.
+	// Bad arguments are ignored, never a panic: a panic would end the Go runtime for the whole page.
 	push := js.FuncOf(func(_ js.Value, args []js.Value) any {
-		if len(args) < 1 || args[0].Get("byteLength").Int() != len(in) {
+		if len(args) < 1 || !isBytes(args[0]) || args[0].Get("byteLength").Int() != len(in) {
 			return nil
 		}
 		js.CopyBytesToGo(in, args[0])
@@ -35,15 +37,14 @@ func main() {
 	})
 
 	estimate := js.FuncOf(func(_ js.Value, args []js.Value) any {
-		if len(args) < 2 {
+		if len(args) < 2 || args[0].Type() != js.TypeNumber || !isBytes(args[1]) {
 			return 0
 		}
 		n := session.Encode(s.Estimate(args[0].Float()), out)
 		for i, v := range out[:n] {
 			binary.LittleEndian.PutUint64(outBytes[i*f64:], math.Float64bits(v))
 		}
-		js.CopyBytesToJS(args[1], outBytes[:n*f64])
-		return n
+		return js.CopyBytesToJS(args[1], outBytes[:n*f64]) / f64
 	})
 
 	reset := js.FuncOf(func(js.Value, []js.Value) any {

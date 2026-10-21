@@ -24,7 +24,7 @@ POS (Wang et al., 2017) projects the temporally normalised RGB signal onto a pla
 
 ## 4. Uniform resampling from frame timestamps
 
-Browsers deliver frames at irregular intervals. Samples are placed on their capture timestamps and linearly interpolated onto a 30 Hz grid before any filtering or FFT. A gap above 250 ms invalidates the window instead of being interpolated across.
+Browsers deliver frames at irregular intervals. Samples are placed on their capture timestamps and linearly interpolated onto a 30 Hz grid before any filtering or FFT. A gap of up to 500 ms (a brief worker stall) is bridged by linear interpolation; a longer gap restarts the warm-up instead of being interpolated across. On the simulated stalls of 400 ms every 20 s, bridging kept the heart-rate coverage at 100% (it was 83%) and the breathing coverage at 100% (it was 67%), with the same error.
 
 ## 5. Heart-rate band of 0.7 to 3.0 Hz
 
@@ -87,6 +87,22 @@ There is no nonce and no `'unsafe-inline'`: scripts are external files, the comp
 `frame-ancestors` is ignored by browsers when it comes from a `<meta>` tag (Chrome logs a console message for it, which is expected); it is enforced only because the server also sends it in the header. The e2e test asserts that no `securitypolicyviolation` event fires during a measuring session and that every request goes to the app's own origin.
 
 Revisit if a dependency needs inline styles or scripts (prefer changing the dependency's usage over loosening the policy), or if the demo is hosted behind another server (the header must be set there as well).
+
+## 15. Every engine change is measured on a fixed benchmark
+
+`engine/sim` generates sessions with a known heart rate (with drift and breathing-synchronous variation), breathing rate and phase, and adds the nuisances seen in the browser: frames dropped by a busy worker, stalls, flicker, exposure steps, motion, talking, a lost face, body sway and the heartbeat moving the shoulders. `go run ./cmd/validate` reports, per scenario, the coverage and error of heart rate and breathing, the share of confident readings that are wrong, and how often the breathing phase is called and right. A change to the engine enters only if this table does not get worse; recorded sessions against a reference device replace the simulation as soon as they exist, because the simulation is easy on heart rate by construction.
+
+## 16. Breathing needs its own evidence
+
+A breathing rate is reported only when the band-passed shoulder signal correlates with itself at the detected period (at least 0.5) and the spectral SNR is at least 3 dB. On the simulation, the spectral SNR alone could not separate breathing from noise (noise reached 15 dB, noisy breathing fell to 13.6 dB), while the periodicity could (noise at most 0.35, breathing at least 0.73). Before this, shoulders without any breathing produced a rate in every window, 9 breaths per minute off.
+
+The phase comes from a sinusoid fitted at the detected rate over the last cycle, which works as a matched filter: faster motion such as the heartbeat moving the shoulders is rejected, and there is no ringing at the window edge. Turning points come out as `hold` through the hysteresis on that direction. A real pause is detected separately: the engine measures how long the shoulders have held still, on the signal before the detrend (what is left after a straight line and the heartbeat sinusoid, and the drift of that line, stay under 10% of the breathing amplitude or a few times the landmark noise floor, whichever is larger), fits the breathing on the data before that stretch, and calls a pause when a straight line explains the still stretch clearly better than that breathing continued would, in absolute terms and by a ratio of at least 3. A window that moves is never a pause. The heartbeat frequency, when it stands out in the shoulder signal, is modelled in every fit so it cannot tip the balance, and a pause already called holds while the stretch stays still for more than twice the minimum window.
+
+Tested on a matrix of 6, 10, 15 and 24 breaths per minute, pauses starting at seven points of the cycle, heartbeat motion at 0.7 to 2 Hz and landmark noise: every pause is recognised within 3 s, and continuous breathing is never called a pause while it moves at more than half its peak speed. Known limits: strong heartbeat motion (a quarter of the breathing amplitude) together with landmark noise can delay a pause past 4 s, and noise can flip a single estimate inside a long pause; with strong periodic landmark noise (about a third of the breathing amplitude), the phase can stay on `hold` for a few seconds after a pause ends (a missed call, not a wrong one); and after a change of rhythm (for example from a natural 12 breaths per minute to the guided 6) the rate of the 30 s window lags, so the phase can be called against the breathing until the new rhythm dominates the window: up to 18.5 s after the change in our measurements (six starting phases, five changes of rhythm, one and ten estimates per second), never after 22 s. A local rate estimate for the phase is the next step. On the simulation, phase agreement rose from about 90% to 100% of the calls, and the phase is called in every clear moment of the scenarios without motion or speech.
+
+## 17. Motion is a speed, and moving frames leave the heart-rate window
+
+Landmark motion is divided by the time since the previous face frame, so the threshold (0.75 interocular distances per second, the old per-frame limit at about 15 fps) does not change when the frame rate changes. Frames above it are left out of the heart-rate window, and only the last 2 s of motion decide the `too_much_motion` reason. A burst of motion now costs the burst plus a fresh 10 s warm-up, instead of the burst plus a full 15 s window, and corrupted frames never enter the estimate. When the heart-rate extraction fails after the warm-up, the reason is `warming_up` instead of none, so no empty value is shown without a reason.
 
 ## Pending
 

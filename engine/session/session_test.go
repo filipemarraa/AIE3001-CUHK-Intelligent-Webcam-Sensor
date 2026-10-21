@@ -115,6 +115,70 @@ func TestBreathingAt6RPMAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestShouldersWithoutBreathingLeaveRRUnknown(t *testing.T) {
+	xs := synthSamples(72, 6, 40, 30)
+	rng := rand.New(rand.NewPCG(3, 4))
+	for i := range xs {
+		xs[i].ShoulderY = 0.6 + 0.001*rng.NormFloat64()
+	}
+	s := New(DefaultConfig())
+	e := s.Estimate(pushAll(s, xs))
+	assertHeartRate(t, e, 72)
+	if !math.IsNaN(e.RRRpm) || e.Phase != resp.PhaseUnknown {
+		t.Fatalf("RR %v phase %v from shoulders without breathing, want NaN and unknown", e.RRRpm, e.Phase)
+	}
+}
+
+func TestHeartRateFailureAfterWarmupGivesAReason(t *testing.T) {
+	xs := synthSamples(72, 6, 20, 30)
+	for i := range xs {
+		xs[i].R, xs[i].G, xs[i].B = 150, 110, 90
+	}
+	s := New(DefaultConfig())
+	assertInvalid(t, s.Estimate(pushAll(s, xs)), quality.ReasonWarmingUp)
+}
+
+func TestMotionIsMeasuredPerSecond(t *testing.T) {
+	for _, tc := range []struct {
+		fps    float64
+		reason quality.Reason
+	}{
+		{30, quality.ReasonMotion},
+		{10, quality.ReasonNone},
+	} {
+		xs := synthSamples(72, 6, 20, tc.fps)
+		for i := range xs {
+			xs[i].Motion = 0.04
+		}
+		s := New(DefaultConfig())
+		e := s.Estimate(pushAll(s, xs))
+		if e.Reason != tc.reason {
+			t.Errorf("%v fps, 0.04 face widths per frame: reason %v, want %v", tc.fps, e.Reason, tc.reason)
+		}
+	}
+}
+
+func TestMotionBurstOnlyCostsTheBurstAndTheWarmup(t *testing.T) {
+	xs := synthSamples(72, 6, 50, 30)
+	for i := range xs {
+		if xs[i].TimeMs >= 30000 && xs[i].TimeMs < 33000 {
+			xs[i].Motion = 0.2
+		}
+	}
+	s := New(DefaultConfig())
+	pushed := len(until(xs, 32000))
+	pushAll(s, xs[:pushed])
+	if e := s.Estimate(32000); e.Reason != quality.ReasonMotion {
+		t.Fatalf("during the burst: reason %v, want too_much_motion", e.Reason)
+	}
+	next := len(until(xs, 36000))
+	pushAll(s, xs[pushed:next])
+	assertInvalid(t, s.Estimate(36000), quality.ReasonWarmingUp)
+	pushed, next = next, len(until(xs, 44000))
+	pushAll(s, xs[pushed:next])
+	assertHeartRate(t, s.Estimate(44000), 72)
+}
+
 func TestNoFaceInvalidates(t *testing.T) {
 	xs := synthSamples(72, 6, 25, 30)
 	for i := range xs {
@@ -156,6 +220,21 @@ func TestGapInvalidatesThenRecovers(t *testing.T) {
 
 	now = pushAll(s, xs[len(until(xs, 22000)):])
 	assertHeartRate(t, s.Estimate(now), 72)
+}
+
+func TestShortStallIsBridged(t *testing.T) {
+	var xs []Sample
+	for _, x := range synthSamples(72, 6, 40, 30) {
+		if x.TimeMs < 30000 || x.TimeMs >= 30400 {
+			xs = append(xs, x)
+		}
+	}
+	s := New(DefaultConfig())
+	e := s.Estimate(pushAll(s, until(xs, 32000)))
+	assertHeartRate(t, e, 72)
+	if math.Abs(e.RRRpm-6) > 1 {
+		t.Fatalf("RR %.2f after a 400 ms stall, want 6 ± 1", e.RRRpm)
+	}
 }
 
 func TestStaleSamplesInvalidate(t *testing.T) {

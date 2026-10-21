@@ -21,7 +21,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		SampleRateHz: 30,
-		MaxGapMs:     250,
+		MaxGapMs:     500,
 		LowHz:        0.7,
 		HighHz:       3.0,
 		POSWindowS:   1.6,

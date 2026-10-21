@@ -32,6 +32,8 @@ type Sample struct {
 	Mouth           float64
 	ShoulderY       float64
 	ShoulderW       float64
+
+	speed float64
 }
 
 func SampleFromSlice(x []float64) (Sample, error) {

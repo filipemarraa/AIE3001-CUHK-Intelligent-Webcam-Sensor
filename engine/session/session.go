@@ -13,8 +13,9 @@ import (
 const MaxPulseLen = 150
 
 const (
-	maxFps      = 60
-	mouthWindow = 2000
+	maxFps       = 60
+	mouthWindow  = 2000
+	motionWindow = 2000
 )
 
 type Estimate struct {
@@ -38,11 +39,12 @@ func DefaultConfig() Config {
 }
 
 type Session struct {
-	cfg       Config
-	buf       []Sample
-	head, n   int
-	lastMs    float64
-	prevPhase resp.Phase
+	cfg        Config
+	buf        []Sample
+	head, n    int
+	lastMs     float64
+	lastFaceMs float64
+	prevPhase  resp.Phase
 
 	ts, r, g, b, y, w, stat []float64
 	idx                     []int
@@ -61,6 +63,7 @@ func New(cfg Config) *Session {
 func (s *Session) Reset() {
 	s.head, s.n = 0, 0
 	s.lastMs = math.Inf(-1)
+	s.lastFaceMs = math.Inf(-1)
 	s.prevPhase = resp.PhaseUnknown
 }
 
@@ -70,6 +73,14 @@ func (s *Session) Push(x Sample) {
 		return
 	}
 	s.lastMs = x.TimeMs
+	x.speed = 0
+	if x.Face {
+		// Motion is the landmark displacement since the previous face frame; over the elapsed time it is a speed.
+		if !math.IsInf(s.lastFaceMs, -1) {
+			x.speed = x.Motion / ((x.TimeMs - s.lastFaceMs) / 1000)
+		}
+		s.lastFaceMs = x.TimeMs
+	}
 	s.buf[s.head] = x
 	s.head = (s.head + 1) % len(s.buf)
 	s.n = min(s.n+1, len(s.buf))
@@ -128,7 +139,8 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 
 	in := s.qualityInputs(hrFrom, ref)
 	hr, spanS, hrErr := s.heartRate(hrFrom, ref)
-	in.WarmingUp = spanS < s.cfg.WarmupS
+	// A window that yields no pulse after the warm-up is still settling, and the reason must say so.
+	in.WarmingUp = spanS < s.cfg.WarmupS || hrErr != nil
 	in.HasHR = hrErr == nil
 	if in.HasHR && isFinite(hr.SNRdB) {
 		in.SNRdB = hr.SNRdB
@@ -150,8 +162,9 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 	return e
 }
 
+// heartRate leaves moving frames out, so a burst of motion costs the burst and a fresh warm-up, not a whole window.
 func (s *Session) heartRate(from int, ref float64) (rppg.HeartRate, float64, error) {
-	idx := s.run(from, ref, s.cfg.RPPG.MaxGapMs, func(x *Sample) bool { return x.Face })
+	idx := s.run(from, ref, s.cfg.RPPG.MaxGapMs, func(x *Sample) bool { return x.Face && x.speed <= quality.MaxMotionPerS })
 	s.ts, s.r, s.g, s.b = s.ts[:0], s.r[:0], s.g[:0], s.b[:0]
 	for _, i := range idx {
 		x := s.at(i)
@@ -188,21 +201,29 @@ func (s *Session) breathing(ref float64) (resp.Breath, error) {
 func (s *Session) qualityInputs(from int, ref float64) quality.Inputs {
 	var in quality.Inputs
 	var faces, lightSum float64
-	motion := s.stat[:0]
 	for i := from; i < s.n; i++ {
 		if x := s.at(i); x.Face {
 			faces++
 			lightSum += x.Light
-			motion = append(motion, x.Motion)
 		}
 	}
-	s.stat = motion
 	in.FaceFraction = faces / float64(s.n-from)
 	if faces > 0 {
 		in.LightMean = lightSum / faces
-		slices.Sort(motion)
-		in.MotionP90 = motion[int(math.Ceil(0.9*faces))-1]
 	}
+
+	// Only recent motion counts: moving frames are already left out of the heart-rate window.
+	motion := s.stat[:0]
+	for i := s.since(ref - motionWindow); i < s.n; i++ {
+		if x := s.at(i); x.Face {
+			motion = append(motion, x.speed)
+		}
+	}
+	if len(motion) > 0 {
+		slices.Sort(motion)
+		in.MotionP90 = motion[int(math.Ceil(0.9*float64(len(motion))))-1]
+	}
+	s.stat = motion
 
 	mouth := s.stat[:0]
 	for i := s.since(ref - mouthWindow); i < s.n; i++ {
