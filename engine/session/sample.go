@@ -57,8 +57,20 @@ func SampleFromSlice(x []float64) (Sample, error) {
 	}, nil
 }
 
+// values is the flat layout of x; SampleFromSlice is its inverse.
+func (x Sample) values() [SampleLen]float64 {
+	var v [SampleLen]float64
+	v[FieldTimeMs], v[FieldR], v[FieldG], v[FieldB] = x.TimeMs, x.R, x.G, x.B
+	if x.Face {
+		v[FieldFace] = 1
+	}
+	v[FieldMotion], v[FieldLight], v[FieldMouth] = x.Motion, x.Light, x.Mouth
+	v[FieldShoulderY], v[FieldShoulderW] = x.ShoulderY, x.ShoulderW
+	return v
+}
+
 func (x Sample) finite() bool {
-	for _, v := range [...]float64{x.TimeMs, x.R, x.G, x.B, x.Motion, x.Light, x.Mouth, x.ShoulderY, x.ShoulderW} {
+	for _, v := range x.values() {
 		if !isFinite(v) {
 			return false
 		}

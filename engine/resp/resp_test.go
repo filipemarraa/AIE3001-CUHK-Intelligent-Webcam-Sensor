@@ -22,13 +22,42 @@ func synthShoulders(rpm, durationS, fps, jitterMs, noise float64, seed uint64) (
 
 func TestEstimateRate(t *testing.T) {
 	for _, rpm := range []float64{6, 10, 15, 24} {
-		ts, y, w := synthShoulders(rpm, 25, 30, 8, 0, 1)
+		ts, y, w := synthShoulders(rpm, 26, 30, 8, 0, 1)
 		got, err := Estimate(ts, y, w, PhaseUnknown, DefaultConfig())
 		if err != nil {
 			t.Fatalf("rpm %v: %v", rpm, err)
 		}
 		if math.Abs(got.RPM-rpm) > 1 {
 			t.Errorf("rpm %v: got %.2f", rpm, got.RPM)
+		}
+	}
+}
+
+func TestDefaultConfigCoversSixRPM(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.LowHz != 0.08 || cfg.HighHz != 0.5 || cfg.MinDurationS != 25 || cfg.SampleRateHz != 10 {
+		t.Fatalf("got %+v, want LowHz 0.08, HighHz 0.5, MinDurationS 25, SampleRateHz 10", cfg)
+	}
+	// DominantFrequency needs 2*fs/LowHz samples.
+	if need := 2 / cfg.LowHz; cfg.MinDurationS < need {
+		t.Fatalf("MinDurationS %v below the %v s the spectrum needs", cfg.MinDurationS, need)
+	}
+}
+
+func TestEstimateAt6RPMAcrossWindows(t *testing.T) {
+	ts, y, w := synthShoulders(6, 60, 30, 8, 0.0005, 1)
+	for endMs := 26000.0; endMs <= 60000; endMs += 500 {
+		n := 0
+		for n < len(ts) && ts[n] < endMs {
+			n++
+		}
+		got, err := Estimate(ts[:n], y[:n], w[:n], PhaseUnknown, DefaultConfig())
+		if err != nil {
+			t.Errorf("window ending %.1f s: %v", endMs/1000, err)
+			continue
+		}
+		if math.Abs(got.RPM-6) > 1 || got.Phase == PhaseUnknown {
+			t.Errorf("window ending %.1f s: %.2f rpm, phase %v", endMs/1000, got.RPM, got.Phase)
 		}
 	}
 }
@@ -41,7 +70,7 @@ func TestEstimateTooShort(t *testing.T) {
 }
 
 func TestEstimateNoShoulders(t *testing.T) {
-	ts, y, w := synthShoulders(10, 25, 30, 0, 0, 1)
+	ts, y, w := synthShoulders(10, 26, 30, 0, 0, 1)
 	w[100] = 0
 	if _, err := Estimate(ts, y, w, PhaseUnknown, DefaultConfig()); !errors.Is(err, ErrNoShoulders) {
 		t.Fatalf("got %v, want ErrNoShoulders", err)
@@ -55,7 +84,7 @@ func TestPhaseFollowsSignal(t *testing.T) {
 		want      Phase
 	}{
 		{"sin rising at 30 s", 30, PhaseIn},
-		{"sin falling at 25 s", 25, PhaseOut},
+		{"sin falling at 35 s", 35, PhaseOut},
 	}
 	for _, c := range cases {
 		ts, y, w := synthShoulders(6, c.durationS, 30, 0, 0, 1)

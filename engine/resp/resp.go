@@ -48,9 +48,9 @@ func DefaultConfig() Config {
 	return Config{
 		SampleRateHz:   10,
 		MaxGapMs:       250,
-		LowHz:          0.1,
+		LowHz:          0.08,
 		HighHz:         0.5,
-		MinDurationS:   20,
+		MinDurationS:   25,
 		PhaseWindowS:   0.5,
 		EnterThreshold: 0.2,
 		ExitThreshold:  0.1,

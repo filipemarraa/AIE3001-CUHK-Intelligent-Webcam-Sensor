@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/filipemarraa/AIE3001-CUHK-Intelligent-Webcam-Sensor/engine/quality"
@@ -92,25 +93,25 @@ func TestHeartRateAfterWarmup(t *testing.T) {
 	}
 }
 
-func TestBreathingAfter20s(t *testing.T) {
-	xs := synthSamples(72, 6, 25, 30)
+func TestBreathingAt6RPMAcrossWindows(t *testing.T) {
+	xs := synthSamples(72, 6, 60, 30)
 	s := New(DefaultConfig())
 
-	now := pushAll(s, until(xs, 15000))
-	e := s.Estimate(now)
+	pushed := len(until(xs, 20000))
+	e := s.Estimate(pushAll(s, xs[:pushed]))
 	assertHeartRate(t, e, 72)
 	if !math.IsNaN(e.RRRpm) || e.Phase != resp.PhaseUnknown {
-		t.Fatalf("at 15 s: RR %v phase %v, want NaN, unknown", e.RRRpm, e.Phase)
+		t.Fatalf("at 20 s: RR %v phase %v, want NaN, unknown", e.RRRpm, e.Phase)
 	}
 
-	now = pushAll(s, xs[len(until(xs, 15000)):])
-	e = s.Estimate(now)
-	assertHeartRate(t, e, 72)
-	if math.Abs(e.RRRpm-6) > 1 {
-		t.Fatalf("RR = %.2f, want 6 ± 1", e.RRRpm)
-	}
-	if e.Phase == resp.PhaseUnknown {
-		t.Fatal("phase unknown after 25 s")
+	for endMs := 26000.0; endMs <= 60000; endMs += 500 {
+		next := len(until(xs, endMs))
+		pushAll(s, xs[pushed:next])
+		pushed = next
+		e := s.Estimate(endMs)
+		if math.Abs(e.RRRpm-6) > 1 || e.Phase == resp.PhaseUnknown {
+			t.Errorf("at %.1f s: RR %.2f phase %v, want 6 ± 1 and a known phase", endMs/1000, e.RRRpm, e.Phase)
+		}
 	}
 }
 
@@ -213,6 +214,9 @@ func TestSampleFromSlice(t *testing.T) {
 	got, err := SampleFromSlice(toSlice(x))
 	if err != nil || got != x {
 		t.Fatalf("got %+v, %v; want %+v", got, err, x)
+	}
+	if v := x.values(); !slices.Equal(v[:], toSlice(x)) {
+		t.Fatalf("values() = %v, want %v", v, toSlice(x))
 	}
 	v := toSlice(x)
 	v[FieldFace] = 0
