@@ -1,7 +1,12 @@
 import type { Diagnostics, Estimate } from '../types.js';
 
 export type ToWorker =
-  | { type: 'init'; assetsBaseUrl: string; record?: boolean }
+  | {
+      type: 'init';
+      assetsBaseUrl: string;
+      record?: boolean;
+      capture?: { landmarkEvery?: number; robustPixels?: boolean };
+    }
   | { type: 'frame'; frame: VideoFrame; tMs: number }
   | { type: 'reset' };
 

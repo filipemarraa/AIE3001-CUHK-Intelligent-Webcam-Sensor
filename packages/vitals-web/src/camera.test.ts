@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mapCameraError, openCamera, startFrameLoop } from './camera.js';
+import { lockExposureWhenStable, mapCameraError, openCamera, startFrameLoop } from './camera.js';
 import { FakeStream, FakeVideo, FakeVideoFrame, domError, fakeMedia } from './test/media.js';
 
 describe('mapCameraError', () => {
@@ -180,5 +180,53 @@ describe('startFrameLoop', () => {
     expect(video.cancelVideoFrameCallback).toHaveBeenCalledOnce();
     expect(video.callbacks.size).toBe(0);
     expect(send).toHaveBeenCalledOnce();
+  });
+});
+
+describe('lockExposureWhenStable', () => {
+  function track(exposures: number[], caps: Record<string, unknown>, apply = vi.fn(() => Promise.resolve())) {
+    let i = 0;
+    return {
+      track: {
+        getCapabilities: () => caps,
+        getSettings: () => ({ exposureTime: exposures[Math.min(i++, exposures.length - 1)], colorTemperature: 4600 }),
+        applyConstraints: apply,
+      } as unknown as MediaStreamTrack,
+      apply,
+    };
+  }
+  const manual = { exposureMode: ['continuous', 'manual'], whiteBalanceMode: ['continuous', 'manual'] };
+  const now = (): Promise<void> => Promise.resolve();
+
+  it('locks exposure and white balance at the current values once exposure is steady', async () => {
+    const t = track([300, 280, 250, 250, 250, 250, 250], manual);
+    await expect(lockExposureWhenStable(t.track, now)).resolves.toBe(true);
+    expect(t.apply).toHaveBeenCalledWith({
+      advanced: [{ exposureMode: 'manual', exposureTime: 250, whiteBalanceMode: 'manual', colorTemperature: 4600 }],
+    });
+  });
+
+  it('leaves the camera alone when it has no manual exposure', async () => {
+    const t = track([250], { exposureMode: ['continuous'] });
+    await expect(lockExposureWhenStable(t.track, now)).resolves.toBe(false);
+    expect(t.apply).not.toHaveBeenCalled();
+  });
+
+  it('gives up without locking when exposure never settles', async () => {
+    const t = track(
+      Array.from({ length: 100 }, (_, k) => 200 + k),
+      manual,
+    );
+    await expect(lockExposureWhenStable(t.track, now)).resolves.toBe(false);
+    expect(t.apply).not.toHaveBeenCalled();
+  });
+
+  it('reports false when the browser refuses the constraints', async () => {
+    const t = track(
+      [250],
+      manual,
+      vi.fn(() => Promise.reject(new Error('OverconstrainedError'))),
+    );
+    await expect(lockExposureWhenStable(t.track, now)).resolves.toBe(false);
   });
 });

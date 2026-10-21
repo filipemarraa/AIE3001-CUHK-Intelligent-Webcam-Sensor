@@ -9,6 +9,52 @@ const CONSTRAINTS: MediaStreamConstraints = {
   audio: false,
 };
 
+const EXPOSURE_POLL_MS = 250;
+const EXPOSURE_STABLE_MS = 1000;
+const EXPOSURE_TIMEOUT_MS = 6000;
+
+type ExposureCapabilities = { exposureMode?: string[]; whiteBalanceMode?: string[] };
+type ExposureSettings = { exposureTime?: number; colorTemperature?: number };
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+// Auto exposure and white balance shift the skin colour by more than the pulse. Lock them at the values the camera
+// settled on, once exposure has stayed the same for a while; a camera that never settles is left on automatic.
+export async function lockExposureWhenStable(
+  track: MediaStreamTrack,
+  wait: (ms: number) => Promise<void> = sleep,
+): Promise<boolean> {
+  // Not every browser implements getCapabilities on camera tracks.
+  const capable = track as Partial<Pick<MediaStreamTrack, 'getCapabilities'>>;
+  const caps = (capable.getCapabilities?.() ?? {}) as ExposureCapabilities;
+  if (caps.exposureMode?.includes('manual') !== true) return false;
+  let last: number | undefined;
+  let stableMs = 0;
+  for (let waited = 0; stableMs < EXPOSURE_STABLE_MS; waited += EXPOSURE_POLL_MS) {
+    if (waited >= EXPOSURE_TIMEOUT_MS) return false;
+    const exposure = (track.getSettings() as ExposureSettings).exposureTime;
+    if (exposure === undefined) return false;
+    stableMs = exposure === last ? stableMs + EXPOSURE_POLL_MS : 0;
+    last = exposure;
+    if (stableMs < EXPOSURE_STABLE_MS) await wait(EXPOSURE_POLL_MS);
+  }
+  const settings = track.getSettings() as ExposureSettings;
+  const lock: Record<string, unknown> = { exposureMode: 'manual', exposureTime: settings.exposureTime };
+  if (caps.whiteBalanceMode?.includes('manual') === true) {
+    lock['whiteBalanceMode'] = 'manual';
+    if (settings.colorTemperature !== undefined) lock['colorTemperature'] = settings.colorTemperature;
+  }
+  try {
+    await track.applyConstraints({ advanced: [lock] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function mapCameraError(e: unknown): VitalsError {
   const { name, message } = (typeof e === 'object' && e !== null ? e : {}) as { name?: unknown; message?: unknown };
   const code = typeof name === 'string' && DENIED.has(name) ? 'camera_denied' : 'camera_unavailable';

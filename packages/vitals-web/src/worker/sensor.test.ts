@@ -94,6 +94,7 @@ const POSE: Point[] = Array.from({ length: 33 }, (_, i) =>
 interface SetupOptions {
   record?: boolean;
   landmarkEvery?: number;
+  robustPixels?: boolean;
   faces?: () => Point[][];
   pose?: () => Point[] | null;
   estimate?: () => Decoded;
@@ -129,6 +130,7 @@ function setup(opts: SetupOptions = {}) {
     now: () => clock.t,
     record: opts.record ?? false,
     landmarkEvery: opts.landmarkEvery ?? 1,
+    robustPixels: opts.robustPixels ?? false,
   });
   const px = image();
   const rects: Box[] = [];
@@ -202,6 +204,15 @@ describe('createSensor', () => {
     s.frame(10_066);
     const later = s.posted.filter((m) => m.type === 'samples').at(-1);
     expect(later?.type === 'samples' ? later.rows.map((r) => r[SAMPLE.timeMs]) : []).toEqual([10_066]);
+  });
+
+  it('reads the skin colour with robust pixels when asked', () => {
+    const plain = setup();
+    const robust = setup({ robustPixels: true });
+    plain.frame(0);
+    robust.frame(0);
+    expect(robust.pushed[0]?.[SAMPLE.face]).toBe(1);
+    expect(robust.pushed[0]?.[SAMPLE.r]).toBe(plain.pushed[0]?.[SAMPLE.r]);
   });
 
   it('posts no samples unless recording', () => {

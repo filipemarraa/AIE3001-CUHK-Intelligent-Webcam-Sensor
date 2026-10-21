@@ -25,6 +25,7 @@ export interface SensorDeps {
   record?: boolean;
   // Find landmarks every N frames and read the skin colour on every frame from the last skin region.
   landmarkEvery?: number;
+  robustPixels?: boolean;
 }
 
 export interface Sensor {
@@ -73,12 +74,13 @@ function skinColour(
   width: number,
   height: number,
   pixels: (rect: Box) => Uint8ClampedArray,
+  robust: boolean,
 ): ReturnType<typeof meanRgb> {
   const boxes = roiBoxes(faces, width, height);
   if (boxes.length === 0) return null;
   const rect = boundingBox(boxes);
   const local = boxes.map((b) => ({ x: b.x - rect.x, y: b.y - rect.y, w: b.w, h: b.h }));
-  return meanRgb(pixels(rect), rect.w, local);
+  return meanRgb(pixels(rect), rect.w, local, { robust });
 }
 
 function errorMessage(e: unknown): string {
@@ -124,7 +126,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.shoulderY] = held?.y ?? 0;
     x[SAMPLE.shoulderW] = held?.w ?? 0;
     const face = faces[0];
-    const skin = face ? skinColour(faces, width, height, pixels) : null;
+    const skin = face ? skinColour(faces, width, height, pixels, deps.robustPixels === true) : null;
     if (!face || !skin) {
       prevFace = null;
       return x;
@@ -304,7 +306,8 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
   // The Go runtime has no close; once loaded it is kept and reused by a retried init.
   let engine: Engine | null = null;
 
-  async function init(assetsBaseUrl: string, record: boolean): Promise<void> {
+  async function init(m: Extract<ToWorker, { type: 'init' }>): Promise<void> {
+    const { assetsBaseUrl } = m;
     if (sensor !== null) {
       post({ type: 'ready' });
       return;
@@ -336,7 +339,9 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
       engine: e.value,
       post: deps.post,
       now: deps.now,
-      record,
+      record: m.record === true,
+      landmarkEvery: m.capture?.landmarkEvery ?? 1,
+      robustPixels: m.capture?.robustPixels === true,
     });
     post({ type: 'ready' });
   }
@@ -364,7 +369,7 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
   }
 
   return (m) => {
-    if (m.type === 'init') void init(m.assetsBaseUrl, m.record === true);
+    if (m.type === 'init') void init(m);
     else if (m.type === 'reset') sensor?.reset();
     else frame(m.frame, m.tMs);
   };
