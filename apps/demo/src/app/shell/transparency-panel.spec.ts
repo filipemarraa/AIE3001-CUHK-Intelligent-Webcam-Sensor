@@ -41,17 +41,28 @@ describe('TransparencyPanel', () => {
     expect(el.querySelector('[data-testid="details"]')).not.toBeNull();
   });
 
-  it('shows quality, confidence, method, frame cost and dropped frames', async () => {
+  it('shows signal quality, confidence, method, frame cost and dropped frames', async () => {
     fake.emit('estimate', estimate({ quality: 0.8049, confidence: 'medium', method: 'pos' }));
     fake.emit('diagnostics', { frameCostMs: 12.34, droppedFrames: 3, pulse: [] });
     await open();
     const text = el.textContent.replace(/\s+/g, ' ');
 
-    expect(text).toContain('Quality: 0.80');
+    expect(text).toContain('Signal quality: 0.80');
     expect(text).toContain('Confidence: medium');
     expect(text).toContain('Method: pos');
     expect(text).toContain('Frame cost: 12.3 ms');
     expect(text).toContain('Dropped frames: 3');
+  });
+
+  it('fills the quality bar in proportion to the quality, clamped to 0..1', async () => {
+    fake.emit('estimate', estimate({ quality: 0.804 }));
+    await open();
+    const bar = (): HTMLElement | null => el.querySelector<HTMLElement>('.bar span');
+    expect(bar()?.style.width).toBe('80%');
+
+    fake.emit('estimate', estimate({ quality: 1.4 }));
+    await whenStable();
+    expect(bar()?.style.width).toBe('100%');
   });
 
   it('draws the pulse as an SVG polyline with no canvas', async () => {

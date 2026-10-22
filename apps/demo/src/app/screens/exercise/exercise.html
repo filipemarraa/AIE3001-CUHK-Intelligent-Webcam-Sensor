@@ -1,18 +1,57 @@
 <section class="exercise" aria-labelledby="exercise-title">
-  <h1 id="exercise-title">Breathe with the circle</h1>
-  <div class="breath-circle" [style.--breath-period.s]="periodS" aria-hidden="true"></div>
+  <h1 id="exercise-title">Breathe with the <em>circle</em></h1>
+  <div class="breath" aria-hidden="true">
+    <div class="breath-circle" [style.--breath-period.s]="periodS"></div>
+  </div>
   <p class="guide-label" data-testid="guide-label">{{ label() }}</p>
   @if (estimate()?.breathPhase; as phase) {
     <p class="measured-phase" data-testid="measured-phase">You: {{ phase }}</p>
   }
-  <button type="button" (click)="toggleNumbers()">{{ vitals.showNumbers() ? 'Hide numbers' : 'Show numbers' }}</button>
+  @if (status(); as s) {
+    <p class="status-pill" [class.weak]="s.weak" data-testid="status">{{ s.text }}</p>
+  }
+  <button
+    type="button"
+    class="switch"
+    role="switch"
+    [attr.aria-checked]="vitals.showNumbers()"
+    (click)="toggleNumbers()"
+  >
+    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+    Show numbers
+  </button>
   @if (vitals.showNumbers()) {
     <div class="numbers" aria-live="polite">
       @if (invalid()) {
-        <p>{{ reason() }}</p>
+        <p class="reason">{{ reason() }}</p>
+        <div class="metrics faded" aria-hidden="true">
+          <p class="metric"><span class="metric-label">Heart rate</span> <span class="metric-value">— —</span></p>
+          <p class="metric"><span class="metric-label">Breathing</span> <span class="metric-value">— —</span></p>
+        </div>
       } @else {
-        <p>Heart rate: {{ heartRate() }} bpm</p>
-        <p>Breathing: {{ breathingRate() }} breaths/min</p>
+        <div class="metrics">
+          <p class="metric">
+            <span class="metric-label">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" />
+              </svg>
+              Heart rate<span class="visually-hidden">:</span>
+            </span>
+            <span class="metric-value"> {{ heartRate() }} </span>
+            <span class="metric-unit">bpm</span>
+          </p>
+          <p class="metric">
+            <span class="metric-label">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 9h10a3 3 0 1 0-3-3" />
+                <path d="M3 15h14a3 3 0 1 1-3 3" />
+              </svg>
+              Breathing<span class="visually-hidden">:</span>
+            </span>
+            <span class="metric-value"> {{ breathingRate() }} </span>
+            <span class="metric-unit">breaths/min</span>
+          </p>
+        </div>
       }
     </div>
   }

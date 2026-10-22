@@ -36,6 +36,7 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
   '.wasm': 'application/wasm',
   '.task': 'application/octet-stream',
+  '.woff2': 'font/woff2',
 };
 
 function send(res, status, body) {

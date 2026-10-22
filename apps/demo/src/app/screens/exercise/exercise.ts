@@ -1,4 +1,5 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import type { Confidence } from 'vitals-web';
 import { breathingRateText, heartRateText } from '../../format';
 import { instructionText } from '../../reason-text';
 import { TARGET_RPM, VitalsService } from '../../vitals.service';
@@ -8,6 +9,12 @@ const TICK_MS = 250;
 
 export function guideLabel(elapsedS: number, periodS: number): 'Breathe in' | 'Breathe out' {
   return elapsedS % periodS < periodS * INHALE_SHARE ? 'Breathe in' : 'Breathe out';
+}
+
+export function readingStatus(confidence: Confidence | undefined): { text: string; weak: boolean } | null {
+  if (confidence === 'high' || confidence === 'medium') return { text: 'Reading is stable', weak: false };
+  if (confidence === 'low') return { text: 'Reading is uncertain', weak: true };
+  return null;
 }
 
 @Component({
@@ -22,6 +29,7 @@ export class Exercise {
   protected readonly estimate = this.vitals.estimate;
   protected readonly invalid = computed(() => this.estimate()?.confidence === 'invalid');
   protected readonly reason = computed(() => instructionText(this.estimate()));
+  protected readonly status = computed(() => readingStatus(this.estimate()?.confidence));
 
   constructor() {
     const startedAt = Date.now();

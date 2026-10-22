@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeVitals, estimate } from '../../testing/fake-vitals';
 import { TARGET_RPM, VITALS_FACTORY, VitalsService } from '../../vitals.service';
-import { Exercise, guideLabel } from './exercise';
+import { Exercise, guideLabel, readingStatus } from './exercise';
 
 describe('Exercise', () => {
   let fake: FakeVitals;
@@ -28,15 +28,18 @@ describe('Exercise', () => {
     return button;
   }
 
-  it('hides the numbers until the visitor asks for them', async () => {
+  it('hides the numbers until the visitor switches "Show numbers" on', async () => {
+    expect(toggle().getAttribute('role')).toBe('switch');
     expect(toggle().textContent.trim()).toBe('Show numbers');
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
     expect(el.textContent).not.toMatch(/bpm/);
 
     toggle().click();
     await whenStable();
 
     const text = el.textContent.replace(/\s+/g, ' ');
-    expect(toggle().textContent.trim()).toBe('Hide numbers');
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
+    expect(toggle().textContent.trim()).toBe('Show numbers');
     expect(text).toContain('Heart rate: 66 bpm');
     expect(text).toContain('Breathing: 6.0 breaths/min');
   });
@@ -69,6 +72,7 @@ describe('Exercise', () => {
 
     expect(el.textContent).toContain('Hold still');
     expect(el.textContent).not.toMatch(/bpm/);
+    expect(el.querySelector('.metrics.faded')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('sets the breathing circle period from the target rhythm', () => {
@@ -83,6 +87,29 @@ describe('Exercise', () => {
     fake.emit('estimate', estimate({ breathPhase: null }));
     await whenStable();
     expect(el.querySelector('[data-testid="measured-phase"]')).toBeNull();
+  });
+
+  it('shows how steady the reading is, and nothing while it is invalid', async () => {
+    const pill = (): string | undefined => el.querySelector('[data-testid="status"]')?.textContent.trim();
+    expect(pill()).toBe('Reading is stable');
+
+    fake.emit('estimate', estimate({ confidence: 'low' }));
+    await whenStable();
+    expect(pill()).toBe('Reading is uncertain');
+
+    fake.emit('estimate', estimate({ confidence: 'invalid', reason: 'too_much_motion' }));
+    await whenStable();
+    expect(pill()).toBeUndefined();
+  });
+
+  describe('readingStatus', () => {
+    it('calls high and medium stable, low uncertain, and invalid nothing', () => {
+      expect(readingStatus('high')).toEqual({ text: 'Reading is stable', weak: false });
+      expect(readingStatus('medium')).toEqual({ text: 'Reading is stable', weak: false });
+      expect(readingStatus('low')).toEqual({ text: 'Reading is uncertain', weak: true });
+      expect(readingStatus('invalid')).toBeNull();
+      expect(readingStatus(undefined)).toBeNull();
+    });
   });
 
   describe('guideLabel', () => {

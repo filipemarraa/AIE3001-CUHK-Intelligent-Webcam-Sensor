@@ -1,26 +1,66 @@
-<app-shell />
-<main>
-  <div class="stage" [hidden]="vitals.screen() === 'welcome' || vitals.screen() === 'summary'">
-    <video #video class="self-view" playsinline muted></video>
-    @if (vitals.screen() === 'calibration') {
-      <div class="framing-guide" data-testid="framing-guide" aria-hidden="true"></div>
-    }
+<div class="device">
+  <span class="device-camera" aria-hidden="true"></span>
+  <div class="window">
+    <app-shell />
+    <main [class.split]="vitals.screen() !== 'summary'">
+      <div class="stage" [hidden]="vitals.screen() === 'summary'">
+        <video #video class="self-view" playsinline muted></video>
+        @if (vitals.screen() === 'welcome') {
+          <div class="stage-idle" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M15 10l4.5-2.5v9L15 14" />
+              <rect x="3" y="7" width="12" height="10" rx="2" />
+            </svg>
+            <p>The camera is off</p>
+          </div>
+        }
+        @if (vitals.screen() === 'calibration') {
+          <div class="framing-guide" data-testid="framing-guide" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+        }
+        <p class="stage-pill">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          Processed on this device
+        </p>
+      </div>
+      <div class="panel">
+        @switch (vitals.screen()) {
+          @case ('welcome') {
+            <app-welcome [video]="video" />
+          }
+          @case ('calibration') {
+            <app-calibration />
+          }
+          @case ('exercise') {
+            <app-exercise />
+          }
+          @case ('summary') {
+            <app-summary />
+          }
+        }
+        @if (vitals.screen() === 'calibration' || vitals.screen() === 'exercise') {
+          <app-transparency-panel />
+        }
+      </div>
+    </main>
   </div>
-  @switch (vitals.screen()) {
-    @case ('welcome') {
-      <app-welcome [video]="video" />
-    }
-    @case ('calibration') {
-      <app-calibration />
-    }
-    @case ('exercise') {
-      <app-exercise />
-    }
-    @case ('summary') {
-      <app-summary />
-    }
-  }
-  @if (vitals.screen() === 'calibration' || vitals.screen() === 'exercise') {
-    <app-transparency-panel />
-  }
-</main>
+</div>
