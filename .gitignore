@@ -28,3 +28,6 @@ apps/demo/e2e/fake.y4m
 # Playwright output
 test-results/
 playwright-report/
+
+# Vercel CLI link
+.vercel
