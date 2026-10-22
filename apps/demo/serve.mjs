@@ -17,7 +17,7 @@ export const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-const HEADERS = {
+export const HEADERS = {
   'Content-Security-Policy': CSP,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',

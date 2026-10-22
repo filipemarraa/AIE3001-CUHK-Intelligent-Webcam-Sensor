@@ -3,7 +3,7 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CSP, createServer } from './serve.mjs';
+import { CSP, HEADERS, createServer } from './serve.mjs';
 
 const EXACT_CSP =
   "default-src 'self'; connect-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; " +
@@ -132,5 +132,16 @@ describe('serve.mjs', () => {
   it('rejects methods other than GET and HEAD', async () => {
     expect((await get('/', 'POST')).status).toBe(405);
     expect((await get('/', 'HEAD')).status).toBe(200);
+  });
+});
+
+describe('vercel.json', () => {
+  it('sends the same security headers as serve.mjs on every path', async () => {
+    const { readFileSync } = await import('node:fs');
+    const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+    const all = config.headers.find((h) => h.source === '/(.*)');
+    const sent = Object.fromEntries(all.headers.map((h) => [h.key, h.value]));
+    expect(sent).toEqual(HEADERS);
+    expect(sent['Content-Security-Policy']).toBe(EXACT_CSP);
   });
 });
