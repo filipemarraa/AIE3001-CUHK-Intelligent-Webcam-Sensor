@@ -1,4 +1,7 @@
 <header class="shell">
+  <span class="window-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+  <p class="window-title">Camera breathing</p>
+  <p class="on-device">Runs on this device</p>
   <p class="camera-indicator" data-testid="camera-indicator" [class.on]="vitals.cameraOn()" aria-live="polite">
     {{ vitals.cameraOn() ? 'Camera on' : 'Camera off' }}
   </p>

@@ -39,6 +39,7 @@ beforeAll(async () => {
   writeFileSync(join(root, 'styles.css'), 'body{}');
   writeFileSync(join(root, 'data.json'), '{}');
   writeFileSync(join(root, 'icon.svg'), '<svg/>');
+  writeFileSync(join(root, 'font.woff2'), 'wOF2');
   writeFileSync(join(root, 'assets', 'vitals', 'engine.wasm'), Buffer.from([0, 97, 115, 109]));
   writeFileSync(join(root, 'assets', 'vitals', 'mediapipe', 'face_landmarker.task'), 'task');
   server = createServer(root);
@@ -82,6 +83,7 @@ describe('serve.mjs', () => {
     ['/styles.css', 'text/css; charset=utf-8'],
     ['/data.json', 'application/json; charset=utf-8'],
     ['/icon.svg', 'image/svg+xml'],
+    ['/font.woff2', 'font/woff2'],
     ['/assets/vitals/engine.wasm', 'application/wasm'],
     ['/assets/vitals/mediapipe/face_landmarker.task', 'application/octet-stream'],
   ])('serves %s as %s', async (path, type) => {

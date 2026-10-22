@@ -26,6 +26,10 @@ export class TransparencyPanel {
   protected readonly vitals = inject(VitalsService);
   protected readonly open = signal(false);
   protected readonly viewBox = `0 0 ${String(WIDTH)} ${String(HEIGHT)}`;
+  protected readonly qualityPercent = computed(() => {
+    const q = this.vitals.estimate()?.quality ?? 0;
+    return Math.round(Math.min(1, Math.max(0, q)) * 100);
+  });
   protected readonly points = computed(() => pulsePoints(this.vitals.diagnostics()?.pulse ?? []));
 
   protected toggle(): void {

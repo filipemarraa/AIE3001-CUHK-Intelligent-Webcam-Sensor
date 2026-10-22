@@ -1,13 +1,59 @@
 <section class="welcome" aria-labelledby="welcome-title">
-  <h1 id="welcome-title">A guided breathing exercise</h1>
+  <p class="eyebrow">Privacy by design</p>
+  <h1 id="welcome-title">Before we <em>start</em></h1>
+  <p class="lead">A guided breathing exercise. Your camera stays private.</p>
   <p>
     With your permission, this page uses your camera to estimate your <strong>heart rate</strong> and your
     <strong>breathing</strong> rate while you follow a slow breathing pattern.
   </p>
   <ul class="promises">
-    <li>No recording: video frames are analysed and discarded at once.</li>
-    <li>Nothing leaves this device: nothing is uploaded and nothing is stored.</li>
-    <li>No identification: the face tracker finds where your skin is, not who you are.</li>
+    <li>
+      <span class="promise-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M15 10l4.5-2.5v9L15 14" />
+          <rect x="3" y="7" width="12" height="10" rx="2" />
+          <path d="M3 3l18 18" />
+        </svg>
+      </span>
+      <span class="promise-text"><strong>No recording:</strong> video frames are analysed and discarded at once.</span>
+      <svg class="check" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M7.5 12.5l3 3 6-6.5" />
+      </svg>
+    </li>
+    <li>
+      <span class="promise-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <rect x="4" y="5" width="16" height="11" rx="1.5" />
+          <path d="M2 19h20" />
+          <rect x="9.5" y="9.5" width="5" height="4" rx="0.8" />
+          <path d="M10.5 9.5V8.5a1.5 1.5 0 0 1 3 0v1" />
+        </svg>
+      </span>
+      <span class="promise-text"
+        ><strong>Nothing leaves this device:</strong> nothing is uploaded and nothing is stored.</span
+      >
+      <svg class="check" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M7.5 12.5l3 3 6-6.5" />
+      </svg>
+    </li>
+    <li>
+      <span class="promise-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="8" r="3.5" />
+          <path d="M5 20a7 7 0 0 1 14 0" />
+          <path d="M3 3l18 18" />
+        </svg>
+      </span>
+      <span class="promise-text"
+        ><strong>No identification:</strong> the face tracker finds where your skin is, not who you are.</span
+      >
+      <svg class="check" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M7.5 12.5l3 3 6-6.5" />
+      </svg>
+    </li>
   </ul>
   <p class="notice">Not a medical device. These are wellness estimates for a breathing exercise, not a diagnosis.</p>
   @if (errorText(); as text) {

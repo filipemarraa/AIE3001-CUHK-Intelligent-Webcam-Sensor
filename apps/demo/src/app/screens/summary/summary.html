@@ -1,11 +1,20 @@
 <section class="summary" aria-labelledby="summary-title">
-  <h1 id="summary-title">Well done</h1>
+  <p class="eyebrow">Session complete</p>
+  <h1 id="summary-title">Well <em>done</em></h1>
   @if (vitals.summary()) {
     <ul class="results">
-      <li>Heart rate at start: {{ heartRateStart() }} bpm</li>
-      <li>Heart rate at end: {{ heartRateEnd() }} bpm</li>
-      <li>Average breathing: {{ breathingMean() }} breaths/min</li>
-      <li>Signal quality: {{ quality() }}</li>
+      <li>
+        Heart rate at start: <strong>{{ heartRateStart() }}</strong> bpm
+      </li>
+      <li>
+        Heart rate at end: <strong>{{ heartRateEnd() }}</strong> bpm
+      </li>
+      <li>
+        Average breathing: <strong>{{ breathingMean() }}</strong> breaths/min
+      </li>
+      <li>
+        Signal quality: <strong>{{ quality() }}</strong>
+      </li>
     </ul>
   }
   <p class="notice">Not a medical device. These are wellness estimates, not a diagnosis.</p>
