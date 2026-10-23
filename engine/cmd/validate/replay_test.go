@@ -26,6 +26,7 @@ func TestReplayTableHasARowPerSkinRegion(t *testing.T) {
 	text := `{"kind":"header","version":1,"subject":"P1","condition":"good light"}
 {"kind":"sample","v":[0,180,140,120,1,0.01,150,0.02,0.6,0.3],"skins":[180,140,120,181,141,121]}
 {"kind":"reference","tMs":0,"hrBpm":70,"source":"watch"}
+{"kind":"diagnostics","tMs":1000,"frameCostMs":20,"droppedFrames":0}
 `
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
@@ -34,7 +35,7 @@ func TestReplayTableHasARowPerSkinRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| p1.jsonl | P1 | good light | boxes | 1 | 0% |", "| p1.jsonl | P1 | good light | anatomical | 1 | 0% |", "SNR < 0 dB"} {
+	for _, want := range []string{"| p1.jsonl | P1 | good light | 100% | boxes | 1 | 0% |", "| p1.jsonl | P1 | good light | 100% | anatomical | 1 | 0% |", "SNR < 0 dB"} {
 		if !strings.Contains(table, want) {
 			t.Errorf("table lacks %q:\n%s", want, table)
 		}

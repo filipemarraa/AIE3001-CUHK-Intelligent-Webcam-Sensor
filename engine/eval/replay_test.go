@@ -61,6 +61,9 @@ func TestReadRecording(t *testing.T) {
 	if rec.Subject != "P1" || rec.Condition != "sim" {
 		t.Fatalf("subject %q condition %q, want P1 and sim", rec.Subject, rec.Condition)
 	}
+	if share := rec.FaceShare(); share != 1 {
+		t.Fatalf("face share %v, want 1", share)
+	}
 	if len(rec.Samples) != len(sc.Generate()) || len(rec.References) != 2 {
 		t.Fatalf("%d samples and %d references, want %d and 2", len(rec.Samples), len(rec.References), len(sc.Generate()))
 	}

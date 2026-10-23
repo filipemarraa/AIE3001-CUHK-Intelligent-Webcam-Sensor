@@ -21,7 +21,8 @@ var SkinNames = [2]string{"boxes", "anatomical"}
 const referenceLagMs = 2000
 
 // Recording is a session saved by the lab page as JSON lines, version 1: a header, then samples (the engine layout
-// plus the colour of both skin regions), estimates and reference heart rates read from a device such as a watch.
+// plus the colour of both skin regions), estimates, diagnostics and reference heart rates read from a device such as
+// a watch. Estimates and diagnostics are kept in the file for reading by hand; the replay recomputes the estimates.
 type Recording struct {
 	Subject, Condition string
 	Samples            []RecordedSample
@@ -94,7 +95,7 @@ func ReadRecording(r io.Reader) (Recording, error) {
 				return rec, fmt.Errorf("line %d: reference without tMs or hrBpm", n)
 			}
 			rec.References = append(rec.References, Reference{TimeMs: *l.TimeMs, HRBpm: *l.HRBpm})
-		case "estimate":
+		case "estimate", "diagnostics":
 		default:
 			return rec, fmt.Errorf("line %d: unknown kind %q", n, l.Kind)
 		}
@@ -227,4 +228,18 @@ func matching(readings []reading, refMs float64) (reading, bool) {
 		}
 	}
 	return reading{}, false
+}
+
+// FaceShare is the share of samples with a face, which must stay near zero on a recording of an empty scene.
+func (rec Recording) FaceShare() float64 {
+	if len(rec.Samples) == 0 {
+		return math.NaN()
+	}
+	faces := 0
+	for _, x := range rec.Samples {
+		if x.Values[session.FieldFace] != 0 {
+			faces++
+		}
+	}
+	return float64(faces) / float64(len(rec.Samples))
 }

@@ -14,8 +14,8 @@ import (
 // replayTable compares the skin regions of lab recordings against their reference heart rates.
 func replayTable(paths []string) (string, error) {
 	var b strings.Builder
-	b.WriteString("| recording | subject | condition | skin | references | covered | HR MAE | HR P95 | MAE high/medium | mean SNR dB | 1st HR s |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("| recording | subject | condition | face | skin | references | covered | HR MAE | HR P95 | MAE high/medium | mean SNR dB | 1st HR s |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	type bin struct {
 		n   int
 		sum float64
@@ -33,8 +33,8 @@ func replayTable(paths []string) (string, error) {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}
 		for _, r := range eval.CompareSkins(rec, session.DefaultConfig()) {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |\n", filepath.Base(path), rec.Subject,
-				rec.Condition, r.Skin, r.References, pct(ratio(r.Covered, r.References)), num(r.MAE), num(r.P95),
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |\n", filepath.Base(path),
+				rec.Subject, rec.Condition, pct(rec.FaceShare()), r.Skin, r.References, pct(ratio(r.Covered, r.References)), num(r.MAE), num(r.P95),
 				num(r.ConfidentMAE), num(r.MeanSNRdB), num(r.FirstHRS))
 			if bins[r.Skin] == nil {
 				bins[r.Skin] = make([]bin, len(r.BySNR))
