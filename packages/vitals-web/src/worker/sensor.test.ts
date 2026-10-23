@@ -290,6 +290,35 @@ describe('createSensor', () => {
     expect(quiet.posted.some((m) => m.type === 'roi')).toBe(false);
   });
 
+  it('keeps the face measurements when the skin region in use is empty, for the replay of the other region', () => {
+    const tilted = faceLandmarks({ frame: { width: WIDTH, height: HEIGHT }, widthPx: 40, rollDeg: 90 });
+    const s = setup({ record: true, faces: () => [tilted] });
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 2100;
+    s.frame(10_033);
+    const x = s.pushed[0] as Float64Array;
+    expect(x[SAMPLE.face]).toBe(0);
+    expect(x[SAMPLE.mouth]).toBeCloseTo(mouthOpening(tilted), 9);
+    const samples = s.posted.find((m) => m.type === 'samples');
+    const skins = samples?.type === 'samples' ? samples.skins?.[0] : undefined;
+    expect(skins?.slice(0, 3)).toEqual([0, 0, 0]);
+    expect(skins?.slice(3).every((v) => v > 0)).toBe(true);
+  });
+
+  it('posts an empty overlay when the face is lost, so the old regions are cleared', () => {
+    let found = true;
+    const s = setup({
+      debug: true,
+      faces: () => (found ? [faceLandmarks({ frame: { width: WIDTH, height: HEIGHT }, widthPx: 60 })] : []),
+    });
+    s.frame(0);
+    found = false;
+    s.frame(33);
+    const last = s.posted.filter((m) => m.type === 'roi').at(-1);
+    expect(last).toEqual({ type: 'roi', width: WIDTH, height: HEIGHT, boxes: [], polygons: [] });
+  });
+
   it('posts no samples unless recording', () => {
     const s = setup();
     s.clock.t = 900;

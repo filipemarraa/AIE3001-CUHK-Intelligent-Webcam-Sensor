@@ -27,6 +27,8 @@ type Recording struct {
 	Subject, Condition string
 	Samples            []RecordedSample
 	References         []Reference
+	// EstimateTimes are the moments the worker asked for an estimate; the replay asks at the same ones.
+	EstimateTimes []float64
 }
 
 type RecordedSample struct {
@@ -48,6 +50,9 @@ type line struct {
 	Skins     []float64 `json:"skins"`
 	TimeMs    *float64  `json:"tMs"`
 	HRBpm     *float64  `json:"hrBpm"`
+	E         *struct {
+		TimeMs *float64 `json:"tMs"`
+	} `json:"e"`
 }
 
 func ReadRecording(r io.Reader) (Recording, error) {
@@ -95,7 +100,12 @@ func ReadRecording(r io.Reader) (Recording, error) {
 				return rec, fmt.Errorf("line %d: reference without tMs or hrBpm", n)
 			}
 			rec.References = append(rec.References, Reference{TimeMs: *l.TimeMs, HRBpm: *l.HRBpm})
-		case "estimate", "diagnostics":
+		case "estimate":
+			if l.E == nil || l.E.TimeMs == nil {
+				return rec, fmt.Errorf("line %d: estimate without e.tMs", n)
+			}
+			rec.EstimateTimes = append(rec.EstimateTimes, *l.E.TimeMs)
+		case "diagnostics":
 		default:
 			return rec, fmt.Errorf("line %d: unknown kind %q", n, l.Kind)
 		}
@@ -183,39 +193,55 @@ func compareSkin(rec Recording, k int, name string, cfg session.Config) SkinResu
 	return res
 }
 
-// replay asks for an estimate at every whole second after the first sample, as the worker does.
+// replay pushes each sample before asking for an estimate, as the worker does: at the recorded estimate times, or,
+// without them, after the first sample of every new second.
 func replay(rec Recording, k int, cfg session.Config) []reading {
-	if len(rec.Samples) == 0 {
-		return nil
-	}
 	s := session.New(cfg)
-	next := rec.Samples[0].Values[session.FieldTimeMs] + 1000
 	var out []reading
+	estimate := func(t float64) {
+		e := s.Estimate(t)
+		out = append(out, reading{timeMs: t, hr: e.HRBpm, snr: e.SNRdB, confidence: e.Confidence})
+	}
+	push := func(x RecordedSample) {
+		if sample, err := session.SampleFromSlice(withSkin(x, k)); err == nil {
+			s.Push(sample)
+		}
+	}
+	if len(rec.EstimateTimes) > 0 {
+		i := 0
+		for _, t := range rec.EstimateTimes {
+			for ; i < len(rec.Samples) && rec.Samples[i].Values[session.FieldTimeMs] <= t; i++ {
+				push(rec.Samples[i])
+			}
+			estimate(t)
+		}
+		return out
+	}
+	next := math.Inf(-1)
 	for _, x := range rec.Samples {
-		sample, err := session.SampleFromSlice(withSkin(x, k))
-		if err != nil {
-			continue
+		push(x)
+		t := x.Values[session.FieldTimeMs]
+		if math.IsInf(next, -1) {
+			next = (math.Floor(t/1000) + 1) * 1000
 		}
-		for sample.TimeMs >= next {
-			e := s.Estimate(next)
-			out = append(out, reading{timeMs: next, hr: e.HRBpm, snr: e.SNRdB, confidence: e.Confidence})
-			next += 1000
+		if t >= next {
+			estimate(t)
+			next = (math.Floor(t/1000) + 1) * 1000
 		}
-		s.Push(sample)
 	}
 	return out
 }
 
-// withSkin puts the colour of skin region k in the sample. A region without pixels makes the sample faceless, as the
-// worker does when the skin region it reads is empty.
+// withSkin puts the colour of skin region k in the sample. Each region decides on its own whether the frame has a
+// face: the one in use during the recording may have found no skin while the other did.
 func withSkin(x RecordedSample, k int) []float64 {
 	v := x.Values
 	r, g, b := x.Skins[3*k], x.Skins[3*k+1], x.Skins[3*k+2]
 	if r == 0 && g == 0 && b == 0 {
-		v[session.FieldFace], v[session.FieldR], v[session.FieldG], v[session.FieldB] = 0, 0, 0, 0
-		v[session.FieldLight], v[session.FieldMouth], v[session.FieldMotion] = 0, 0, 0
+		v[session.FieldFace], v[session.FieldR], v[session.FieldG], v[session.FieldB], v[session.FieldLight] = 0, 0, 0, 0, 0
 		return v[:]
 	}
+	v[session.FieldFace] = 1
 	v[session.FieldR], v[session.FieldG], v[session.FieldB] = r, g, b
 	v[session.FieldLight] = 0.299*r + 0.587*g + 0.114*b
 	return v[:]

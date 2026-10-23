@@ -31,6 +31,11 @@ let header: string | null = null;
 let readingStartedAt: number | null = null;
 let startedAt = 0;
 
+function clearReading(): void {
+  watch.value = '';
+  readingStartedAt = null;
+}
+
 function captureOptions(): CaptureOptions {
   return {
     skin: skin.value === 'anatomical' ? 'anatomical' : 'boxes',
@@ -94,6 +99,7 @@ async function start(): Promise<void> {
   samples = 0;
   faces = 0;
   header = null;
+  clearReading();
   references.replaceChildren();
   startButton.disabled = true;
   downloadButton.disabled = true;
@@ -147,6 +153,7 @@ async function start(): Promise<void> {
 function stop(): void {
   vitals?.stop();
   vitals = null;
+  clearReading();
   overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
   stopButton.disabled = true;
   startButton.disabled = false;
@@ -169,13 +176,18 @@ function download(): void {
 
 // The reading is timed when typing starts: the watch shows it at that moment, not when Enter is pressed.
 watch.addEventListener('input', () => {
-  readingStartedAt ??= performance.now();
+  if (watch.value.trim() === '') readingStartedAt = null;
+  else readingStartedAt ??= performance.now();
 });
 
 el('reference', HTMLFormElement).addEventListener('submit', (event) => {
   event.preventDefault();
   const bpm = parseHeartRate(watch.value);
-  if (vitals === null || bpm === null) {
+  if (vitals === null || header === null) {
+    clearReading();
+    return;
+  }
+  if (bpm === null) {
     watch.select();
     return;
   }

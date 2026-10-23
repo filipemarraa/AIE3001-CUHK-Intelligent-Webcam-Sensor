@@ -11,8 +11,9 @@ import (
 	"github.com/filipemarraa/AIE3001-CUHK-Intelligent-Webcam-Sensor/engine/sim"
 )
 
-// recording writes a scenario as the lab page would: the regions carry the pulse, the boxes only noise.
-func recording(t *testing.T, sc sim.Scenario) string {
+// recording writes a scenario as the lab page would: the regions carry the pulse, the boxes only noise. With
+// estimates, an estimate line follows the first sample of every second, as the worker estimates after pushing it.
+func recording(t *testing.T, sc sim.Scenario, estimates bool) string {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(7, 8))
 	var b strings.Builder
@@ -27,6 +28,7 @@ func recording(t *testing.T, sc sim.Scenario) string {
 	write(map[string]any{"kind": "header", "version": 1, "subject": "P1", "condition": "sim",
 		"regions": []string{"boxes", "anatomical"}})
 	nextRef := 15000.0
+	nextEstimate := 1000.0
 	for _, x := range sc.Generate() {
 		face := 0.0
 		if x.Face {
@@ -41,20 +43,23 @@ func recording(t *testing.T, sc sim.Scenario) string {
 			}
 		}
 		write(map[string]any{"kind": "sample", "v": v, "skins": skins})
+		if estimates && x.TimeMs >= nextEstimate {
+			write(map[string]any{"kind": "estimate", "e": map[string]any{"tMs": x.TimeMs, "hrBpm": nil}})
+			nextEstimate = (math.Floor(x.TimeMs/1000) + 1) * 1000
+		}
 		if x.TimeMs >= nextRef {
 			write(map[string]any{"kind": "reference", "tMs": x.TimeMs, "hrBpm": sc.MeanHR(x.TimeMs/1000-10, x.TimeMs/1000),
 				"source": "watch"})
 			nextRef += 15000
 		}
 	}
-	write(map[string]any{"kind": "estimate", "e": map[string]any{"tMs": 1000, "hrBpm": nil}})
 	return b.String()
 }
 
 func TestReadRecording(t *testing.T) {
 	sc := sim.Base("replay")
 	sc.DurationS = 40
-	rec, err := ReadRecording(strings.NewReader(recording(t, sc)))
+	rec, err := ReadRecording(strings.NewReader(recording(t, sc, true)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +92,7 @@ func TestReadRecordingNamesTheBadLine(t *testing.T) {
 func TestCompareSkinsAgainstTheReference(t *testing.T) {
 	sc := sim.Base("replay")
 	sc.DurationS = 90
-	rec, err := ReadRecording(strings.NewReader(recording(t, sc)))
+	rec, err := ReadRecording(strings.NewReader(recording(t, sc, true)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +122,7 @@ func TestCompareSkinsAgainstTheReference(t *testing.T) {
 func TestCompareSkinsTreatsAMissingRegionAsNoFace(t *testing.T) {
 	sc := sim.Base("replay")
 	sc.DurationS = 40
-	rec, err := ReadRecording(strings.NewReader(recording(t, sc)))
+	rec, err := ReadRecording(strings.NewReader(recording(t, sc, true)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +131,41 @@ func TestCompareSkinsTreatsAMissingRegionAsNoFace(t *testing.T) {
 	}
 	if r := CompareSkins(rec, session.DefaultConfig())[1]; r.Covered != 0 {
 		t.Fatalf("regions without pixels covered %d references, want none", r.Covered)
+	}
+}
+
+func TestReplayEstimatesWhenTheWorkerDid(t *testing.T) {
+	sc := sim.Base("replay")
+	sc.DurationS = 20
+	for _, estimates := range []bool{true, false} {
+		rec, err := ReadRecording(strings.NewReader(recording(t, sc, estimates)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(rec.EstimateTimes) > 0; got != estimates {
+			t.Fatalf("estimate times read: %v, want %v", got, estimates)
+		}
+		if first := CompareSkins(rec, session.DefaultConfig())[1].FirstHRS; !(first <= 10.1) {
+			t.Errorf("recorded estimates %v: first heart rate at %v s, want by 10.1 s as in the worker", estimates, first)
+		}
+	}
+}
+
+func TestReplayKeepsTheRegionThatFoundSkin(t *testing.T) {
+	sc := sim.Base("replay")
+	sc.DurationS = 50
+	rec, err := ReadRecording(strings.NewReader(recording(t, sc, true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range rec.Samples {
+		v := &rec.Samples[i].Values
+		v[session.FieldFace], v[session.FieldR], v[session.FieldG], v[session.FieldB], v[session.FieldLight] = 0, 0, 0, 0, 0
+		rec.Samples[i].Skins[0], rec.Samples[i].Skins[1], rec.Samples[i].Skins[2] = 0, 0, 0
+	}
+	results := CompareSkins(rec, session.DefaultConfig())
+	if results[0].Covered != 0 || results[1].Covered != results[1].References {
+		t.Fatalf("boxes covered %d, regions %d of %d: the regions found skin while the boxes did not",
+			results[0].Covered, results[1].Covered, results[1].References)
 	}
 }

@@ -144,36 +144,36 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.shoulderW] = held?.w ?? 0;
     const face = faces[0];
     skins = [0, 0, 0, 0, 0, 0];
-    let skin: Colour = null;
-    if (face) {
-      const boxes = roiBoxes(faces, width, height);
-      const polygons = anatomical || record || deps.debug === true ? skinPolygons(face, width, height) : [];
-      const fromBoxes = !anatomical || record ? boxesColour(boxes, pixels, robust) : null;
-      const fromRegions = anatomical || record ? regionsColour(polygons, width, height, pixels, robust) : null;
-      skin = anatomical ? fromRegions : fromBoxes;
-      skins = [...rgb(fromBoxes), ...rgb(fromRegions)];
-      if (deps.debug === true) {
-        post({
-          type: 'roi',
-          width,
-          height,
-          boxes: boxes.map((b) => [b.x, b.y, b.w, b.h]),
-          polygons: polygons.map((p) => [SKIN_REGIONS.indexOf(p.region), ...p.points.flatMap((q) => [q.x, q.y])]),
-        });
-      }
-    }
-    if (!face || !skin) {
+    if (!face) {
+      if (deps.debug === true) post({ type: 'roi', width, height, boxes: [], polygons: [] });
       prevFace = null;
       return x;
     }
+    const boxes = roiBoxes(faces, width, height);
+    const polygons = anatomical || record || deps.debug === true ? skinPolygons(face, width, height) : [];
+    const fromBoxes = !anatomical || record ? boxesColour(boxes, pixels, robust) : null;
+    const fromRegions = anatomical || record ? regionsColour(polygons, width, height, pixels, robust) : null;
+    const skin = anatomical ? fromRegions : fromBoxes;
+    skins = [...rgb(fromBoxes), ...rgb(fromRegions)];
+    if (deps.debug === true) {
+      post({
+        type: 'roi',
+        width,
+        height,
+        boxes: boxes.map((b) => [b.x, b.y, b.w, b.h]),
+        polygons: polygons.map((p) => [SKIN_REGIONS.indexOf(p.region), ...p.points.flatMap((q) => [q.x, q.y])]),
+      });
+    }
+    // Mouth and motion come from the landmarks: a recording keeps them for the region that did find skin.
+    x[SAMPLE.mouth] = mouthOpening(face);
+    x[SAMPLE.motion] = located.motion;
+    prevFace = face;
+    if (skin === null) return x;
     x[SAMPLE.face] = 1;
     x[SAMPLE.r] = skin.r;
     x[SAMPLE.g] = skin.g;
     x[SAMPLE.b] = skin.b;
     x[SAMPLE.light] = skin.luma;
-    x[SAMPLE.mouth] = mouthOpening(face);
-    x[SAMPLE.motion] = located.motion;
-    prevFace = face;
     return x;
   }
 
