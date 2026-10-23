@@ -12,7 +12,7 @@ function average(xs: number[]): number | null {
 export function summarize(history: Estimate[], durationS: number, method: Method): ExerciseSummary {
   const valid = history.filter((e) => e.hrBpm !== null);
   const measured = history.filter((e) => e.reason !== 'warming_up');
-  const rrMean = average(valid.flatMap((e) => (e.rrRpm === null ? [] : [e.rrRpm])));
+  const rrMean = average(history.flatMap((e) => (e.rrRpm === null ? [] : [e.rrRpm])));
   const qualityMean = average(measured.map((e) => e.quality));
   return {
     hrStart: valid[0]?.hrBpm ?? null,

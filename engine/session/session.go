@@ -155,7 +155,7 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 	}
 	if e.Confidence == quality.ConfidenceInvalid {
 		// The shoulders do not need the skin colour: a missing pulse or a dark room leaves breathing to its own test.
-		if breathErr == nil && (e.Reason == quality.ReasonWarmingUp || e.Reason == quality.ReasonLowLight) {
+		if breathErr == nil && !quality.BreathingBlocked(in) {
 			e.RRRpm, e.Phase = breath.RPM, breath.Phase
 		}
 		return e

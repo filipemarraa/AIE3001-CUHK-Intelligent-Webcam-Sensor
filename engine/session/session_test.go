@@ -150,6 +150,10 @@ func TestBreathingHasItsOwnConfidence(t *testing.T) {
 		{"no face", func(x *Sample) { x.Face, x.R, x.G, x.B, x.Light = false, 0, 0, 0, 0 }, quality.ReasonNoFace, false},
 		{"moving", func(x *Sample) { x.Motion = 0.2 }, quality.ReasonMotion, false},
 		{"talking", func(x *Sample) { x.Mouth = 0.02 + 0.1*math.Sin(x.TimeMs/150) }, quality.ReasonTalking, false},
+		{"talking in the dark", func(x *Sample) {
+			x.R, x.G, x.B, x.Light = 12, 8, 6, 15
+			x.Mouth = 0.02 + 0.1*math.Sin(x.TimeMs/150)
+		}, quality.ReasonLowLight, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xs := synthSamples(72, 10, 40, 30)

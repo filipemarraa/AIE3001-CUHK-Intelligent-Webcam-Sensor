@@ -22,8 +22,9 @@ export function decodeEstimate(out: Float64Array): Decoded {
     estimate: {
       tMs: out[OUT.timeMs] ?? 0,
       hrBpm: valid ? finiteOrNull(out[OUT.hr]) : null,
-      rrRpm: valid ? finiteOrNull(out[OUT.rr]) : null,
-      breathPhase: valid ? (PHASES[out[OUT.phase] ?? 0] ?? null) : null,
+      // Breathing has its own test in the engine and may be reported while the heart rate is invalid.
+      rrRpm: finiteOrNull(out[OUT.rr]),
+      breathPhase: PHASES[out[OUT.phase] ?? 0] ?? null,
       quality: out[OUT.quality] ?? 0,
       confidence,
       reason: REASONS[out[OUT.reason] ?? 0] ?? null,

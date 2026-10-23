@@ -38,6 +38,28 @@ func TestAssessReasonPriority(t *testing.T) {
 	}
 }
 
+func TestBreathingBlocked(t *testing.T) {
+	tests := []struct {
+		name    string
+		mod     func(*Inputs)
+		blocked bool
+	}{
+		{"good", func(*Inputs) {}, false},
+		{"warming up", func(i *Inputs) { i.WarmingUp = true; i.HasHR = false }, false},
+		{"dark", func(i *Inputs) { i.LightMean = 10 }, false},
+		{"no face", func(i *Inputs) { i.FaceFraction = 0.5 }, true},
+		{"moving", func(i *Inputs) { i.MotionP90 = 3 }, true},
+		{"talking in the dark", func(i *Inputs) { i.LightMean = 10; i.MouthStd = 0.1 }, true},
+	}
+	for _, tt := range tests {
+		in := good()
+		tt.mod(&in)
+		if got := BreathingBlocked(in); got != tt.blocked {
+			t.Errorf("%s: blocked = %v, want %v", tt.name, got, tt.blocked)
+		}
+	}
+}
+
 func TestAssessGoodSignalIsHigh(t *testing.T) {
 	got := Assess(good())
 	if got.Confidence != ConfidenceHigh || got.Reason != ReasonNone || got.Quality < 0.75 {
