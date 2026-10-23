@@ -3,6 +3,7 @@ import { summarize } from './summary.js';
 import type {
   Estimate,
   ExerciseSummary,
+  RoiOverlay,
   Unsubscribe,
   Vitals,
   VitalsError,
@@ -10,6 +11,7 @@ import type {
   VitalsOptions,
 } from './types.js';
 import { isFromWorker, type FromWorker, type ToWorker } from './worker/protocol.js';
+import { SKIN_REGIONS } from './worker/vision/skin.js';
 
 export interface VitalsDeps {
   createWorker(): Worker;
@@ -55,6 +57,23 @@ function supported(): boolean {
 function absoluteBase(url: string): string {
   const page = (globalThis as { location?: { href: string } }).location?.href;
   return new URL(url, page).href.replace(/\/$/, '');
+}
+
+function overlay(m: Extract<FromWorker, { type: 'roi' }>): RoiOverlay {
+  const points = (xy: number[]) =>
+    Array.from({ length: Math.floor(xy.length / 2) }, (_, i) => ({
+      x: xy[2 * i] as number,
+      y: xy[2 * i + 1] as number,
+    }));
+  return {
+    width: m.width,
+    height: m.height,
+    boxes: m.boxes.map(([x = 0, y = 0, w = 0, h = 0]) => ({ x, y, w, h })),
+    polygons: m.polygons.flatMap(([index = -1, ...xy]) => {
+      const region = SKIN_REGIONS[index];
+      return region === undefined ? [] : [{ region, points: points(xy) }];
+    }),
+  };
 }
 
 function pageWindow(): EventTarget | undefined {
@@ -151,7 +170,11 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
         s.dropped = 0;
         break;
       case 'samples':
-        options.onSamples?.(m.rows);
+        if (m.skins === undefined) options.onSamples?.(m.rows);
+        else options.onSamples?.(m.rows, m.skins);
+        break;
+      case 'roi':
+        options.onRoi?.(overlay(m));
         break;
       case 'error':
         fail(s, { code: m.code, message: m.message });
@@ -174,15 +197,18 @@ export function createVitals(options: VitalsOptions, deps: VitalsDeps = defaultD
       s.readyTimer = setTimeout(() => {
         fail(s, { code: 'vision_failed', message: 'worker did not become ready' });
       }, READY_TIMEOUT_MS);
-      const { landmarkEvery, robustPixels } = options.capture ?? {};
+      const { landmarkEvery, robustPixels, skin, minFaceConfidence } = options.capture ?? {};
       const capture = {
         ...(landmarkEvery === undefined ? {} : { landmarkEvery }),
         ...(robustPixels === undefined ? {} : { robustPixels }),
+        ...(skin === undefined ? {} : { skin }),
+        ...(minFaceConfidence === undefined ? {} : { minFaceConfidence }),
       };
       worker.postMessage({
         type: 'init',
         assetsBaseUrl,
         ...(options.onSamples === undefined ? {} : { record: true }),
+        ...(options.onRoi === undefined ? {} : { debug: true }),
         ...(Object.keys(capture).length === 0 ? {} : { capture }),
       } satisfies ToWorker);
     });

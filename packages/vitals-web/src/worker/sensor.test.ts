@@ -21,6 +21,8 @@ import {
 import type { ToWorker } from './protocol.js';
 import type { Box, Point } from './vision/roi.js';
 import { mouthOpening } from './vision/metrics.js';
+import { rasterize, skinPolygons } from './vision/skin.js';
+import { faceLandmarks } from '../test/face.js';
 
 const WIDTH = 100;
 const HEIGHT = 50;
@@ -93,8 +95,11 @@ const POSE: Point[] = Array.from({ length: 33 }, (_, i) =>
 
 interface SetupOptions {
   record?: boolean;
+  debug?: boolean;
+  skin?: 'boxes' | 'anatomical';
   landmarkEvery?: number;
   robustPixels?: boolean;
+  pixels?: Uint8ClampedArray;
   faces?: () => Point[][];
   pose?: () => Point[] | null;
   estimate?: () => Decoded;
@@ -131,8 +136,10 @@ function setup(opts: SetupOptions = {}) {
     record: opts.record ?? false,
     landmarkEvery: opts.landmarkEvery ?? 1,
     robustPixels: opts.robustPixels ?? false,
+    ...(opts.skin === undefined ? {} : { skin: opts.skin }),
+    ...(opts.debug === undefined ? {} : { debug: opts.debug }),
   });
-  const px = image();
+  const px = opts.pixels ?? image();
   const rects: Box[] = [];
   const pixels = (rect: Box): Uint8ClampedArray => {
     rects.push(rect);
@@ -213,6 +220,74 @@ describe('createSensor', () => {
     robust.frame(0);
     expect(robust.pushed[0]?.[SAMPLE.face]).toBe(1);
     expect(robust.pushed[0]?.[SAMPLE.r]).toBe(plain.pushed[0]?.[SAMPLE.r]);
+  });
+
+  it('reads the skin colour from the anatomical regions when asked', () => {
+    const face = faceLandmarks({ frame: { width: WIDTH, height: HEIGHT }, widthPx: 60 });
+    const mask = rasterize(skinPolygons(face, WIDTH, HEIGHT), WIDTH, HEIGHT);
+    expect(mask).not.toBeNull();
+    const px = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
+    for (let i = 0; i < WIDTH * HEIGHT; i++) {
+      const x = i % WIDTH;
+      const y = Math.floor(i / WIDTH);
+      const m = mask as NonNullable<typeof mask>;
+      const inside =
+        x >= m.rect.x &&
+        x < m.rect.x + m.rect.w &&
+        y >= m.rect.y &&
+        y < m.rect.y + m.rect.h &&
+        m.labels[(y - m.rect.y) * m.rect.w + (x - m.rect.x)] !== 0;
+      px.set([...(inside ? SKIN : BACKGROUND), 255], i * 4);
+    }
+    const anatomical = setup({ skin: 'anatomical', faces: () => [face], pixels: px });
+    anatomical.frame(0);
+    const a = anatomical.pushed[0] as Float64Array;
+    expect([a[SAMPLE.r], a[SAMPLE.g], a[SAMPLE.b]]).toEqual([...SKIN]);
+    expect(anatomical.rects).toEqual([mask?.rect]);
+  });
+
+  it('records the colour of both skin regions next to each sample', () => {
+    const s = setup({
+      record: true,
+      faces: () => [faceLandmarks({ frame: { width: WIDTH, height: HEIGHT }, widthPx: 60 })],
+    });
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 2100;
+    s.frame(10_033);
+    const samples = s.posted.find((m) => m.type === 'samples');
+    expect(samples !== undefined && isFromWorker(samples)).toBe(true);
+    const skins = samples?.type === 'samples' ? (samples.skins ?? []) : [];
+    expect(skins).toHaveLength(samples?.type === 'samples' ? samples.rows.length : -1);
+    expect(skins.every((r) => r.length === 6 && r.every((v) => v > 0))).toBe(true);
+    const row = samples?.type === 'samples' ? samples.rows[0] : undefined;
+    expect(skins[0]?.slice(0, 3)).toEqual([row?.[SAMPLE.r], row?.[SAMPLE.g], row?.[SAMPLE.b]]);
+  });
+
+  it('records zero skin colours for a frame without a face', () => {
+    const s = setup({ record: true, faces: () => [] });
+    s.clock.t = 900;
+    s.frame(10_000);
+    s.clock.t = 2100;
+    s.frame(10_033);
+    const samples = s.posted.find((m) => m.type === 'samples');
+    expect(samples?.type === 'samples' ? samples.skins?.[0] : undefined).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+
+  it('posts the skin regions in frame pixels for an overlay only when debugging', () => {
+    const face = () => [faceLandmarks({ frame: { width: WIDTH, height: HEIGHT }, widthPx: 60 })];
+    const debug = setup({ debug: true, faces: face });
+    debug.frame(0);
+    const roi = debug.posted.find((m) => m.type === 'roi');
+    expect(roi !== undefined && isFromWorker(roi)).toBe(true);
+    if (roi?.type !== 'roi') throw new Error('no roi message');
+    expect([roi.width, roi.height]).toEqual([WIDTH, HEIGHT]);
+    expect(roi.boxes.every((b) => b.length === 4)).toBe(true);
+    expect(roi.polygons.map((p) => p[0])).toEqual([0, 1, 2, 3]);
+    expect(roi.polygons.every((p) => p.length % 2 === 1 && p.length > 6)).toBe(true);
+    const quiet = setup({ faces: face });
+    quiet.frame(0);
+    expect(quiet.posted.some((m) => m.type === 'roi')).toBe(false);
   });
 
   it('posts no samples unless recording', () => {
@@ -406,6 +481,11 @@ describe('landmarker options', () => {
     });
   });
 
+  it('lowers the face detection threshold only when asked', () => {
+    expect(faceOptions('/a', 'CPU', 0.3)).toMatchObject({ minFaceDetectionConfidence: 0.3 });
+    expect(faceOptions('/a', 'CPU')).not.toHaveProperty('minFaceDetectionConfidence');
+  });
+
   it('tracks one body with the lite pose model in video mode', () => {
     expect(poseOptions('/a', 'CPU')).toEqual({
       baseOptions: { modelAssetPath: '/a/mediapipe/pose_landmarker_lite.task', delegate: 'CPU' },
@@ -509,8 +589,8 @@ function handlerSetup(
     send({ type: 'frame', frame: { close } as unknown as VideoFrame, tMs });
     return close;
   };
-  const ready = async (): Promise<void> => {
-    send({ type: 'init', assetsBaseUrl: '/a' });
+  const ready = async (capture?: { minFaceConfidence?: number }): Promise<void> => {
+    send({ type: 'init', assetsBaseUrl: '/a', ...(capture === undefined ? {} : { capture }) });
     engineLoads.at(-1)?.resolve(engine);
     detectorLoads.at(-1)?.resolve(detectors);
     await flush();
@@ -551,6 +631,12 @@ describe('createWorkerHandler', () => {
     expect(h.rects[0]?.y).toBe(8);
   });
 
+  it('passes the face detection threshold of init to the detectors', async () => {
+    const h = handlerSetup();
+    await h.ready({ minFaceConfidence: 0.3 });
+    expect(h.loadDetectors).toHaveBeenCalledWith('/a', 0.3);
+  });
+
   it('frees and acknowledges a frame that arrives before ready', () => {
     const h = handlerSetup();
     const close = h.frame(0);
@@ -562,7 +648,7 @@ describe('createWorkerHandler', () => {
     const h = handlerSetup();
     await h.ready();
     expect(h.loadEngine).toHaveBeenCalledWith('/a');
-    expect(h.loadDetectors).toHaveBeenCalledWith('/a');
+    expect(h.loadDetectors).toHaveBeenCalledWith('/a', undefined);
     expect(h.posted).toEqual([{ type: 'ready' }]);
     const close = h.frame(100);
     expect(close).toHaveBeenCalledTimes(1);

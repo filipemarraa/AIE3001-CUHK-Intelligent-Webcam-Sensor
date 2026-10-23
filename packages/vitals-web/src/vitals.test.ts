@@ -145,6 +145,67 @@ describe('createVitals', () => {
     });
   });
 
+  it('passes the skin region and the face detection threshold to the worker', async () => {
+    const t = setup(undefined, { capture: { skin: 'anatomical', minFaceConfidence: 0.3 } });
+    void t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    expect(t.worker().posted[0]?.msg).toEqual({
+      type: 'init',
+      assetsBaseUrl: 'http://localhost:4200/vitals/assets',
+      capture: { skin: 'anatomical', minFaceConfidence: 0.3 },
+    });
+  });
+
+  it('hands the skin colours of the boxes and the regions over with the recorded rows', async () => {
+    const onSamples = vi.fn();
+    const t = setup(undefined, { onSamples });
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    t.worker().send({ type: 'ready' });
+    await started;
+    t.worker().send({ type: 'samples', rows: [[1, 2, 3]], skins: [[1, 2, 3, 4, 5, 6]] });
+    expect(onSamples).toHaveBeenCalledWith([[1, 2, 3]], [[1, 2, 3, 4, 5, 6]]);
+  });
+
+  it('asks the worker for the overlay only with onRoi, and hands it over by region name', async () => {
+    const onRoi = vi.fn();
+    const t = setup(undefined, { onRoi });
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    expect(t.worker().posted[0]?.msg).toEqual({
+      type: 'init',
+      assetsBaseUrl: 'http://localhost:4200/vitals/assets',
+      debug: true,
+    });
+    t.worker().send({ type: 'ready' });
+    await started;
+    t.worker().send({
+      type: 'roi',
+      width: 640,
+      height: 480,
+      boxes: [[10, 20, 30, 40]],
+      polygons: [
+        [3, 1, 2, 3, 4, 5, 6],
+        [9, 1, 2, 3, 4, 5, 6],
+      ],
+    });
+    expect(onRoi).toHaveBeenCalledWith({
+      width: 640,
+      height: 480,
+      boxes: [{ x: 10, y: 20, w: 30, h: 40 }],
+      polygons: [
+        {
+          region: 'malarLeft',
+          points: [
+            { x: 1, y: 2 },
+            { x: 3, y: 4 },
+            { x: 5, y: 6 },
+          ],
+        },
+      ],
+    });
+  });
+
   it('locks exposure only when asked, and reports it with the diagnostics', async () => {
     const lock = vi.fn(() => Promise.resolve(true));
     const t = setup(undefined, { capture: { lockExposure: true } }, lock);
