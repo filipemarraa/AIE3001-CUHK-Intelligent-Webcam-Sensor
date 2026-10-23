@@ -86,5 +86,10 @@ func Suite() []Scenario {
 	still.ShoulderAmp = 0
 	still.ShoulderNoise = 0.001
 
-	return []Scenario{ideal, realFPS, stalls, dark, flicker, motion, subtle, talking, faceLost, breath10, breath15, still}
+	noPulse := realFPS
+	noPulse.Name = "rppg_lost_breathing_ok"
+	noPulse.RPM = 10
+	noPulse.PulseAmp = 0
+
+	return []Scenario{ideal, realFPS, stalls, dark, flicker, motion, subtle, talking, faceLost, breath10, breath15, still, noPulse}
 }

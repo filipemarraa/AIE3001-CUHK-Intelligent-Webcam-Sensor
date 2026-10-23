@@ -104,6 +104,13 @@ Tested on a matrix of 6, 10, 15 and 24 breaths per minute, pauses starting at se
 
 Landmark motion is divided by the time since the previous face frame, so the threshold (0.75 interocular distances per second, the old per-frame limit at about 15 fps) does not change when the frame rate changes. Frames above it are left out of the heart-rate window, and only the last 2 s of motion decide the `too_much_motion` reason. A burst of motion now costs the burst plus a fresh 10 s warm-up, instead of the burst plus a full 15 s window, and corrupted frames never enter the estimate. When the heart-rate extraction fails after the warm-up, the reason is `warming_up` instead of none, so no empty value is shown without a reason.
 
+## 18. Breathing is not hidden by a missing pulse
+
+The breathing rate and phase come from the shoulders, not from the skin colour, so they are reported whenever breathing passes its own test (decision 16) and the heart rate is invalid only because the pulse is still settling (`warming_up`) or the light is too low for the skin colour (`low_light`). Without a face, with too much motion or while talking, both stay hidden, since those disturb the shoulders as well. On the benchmark, breathing coverage rose from 87% to 100% with a lost face and from 67% to 86% with motion bursts, and a new scenario with no pulse at all and steady breathing at 10 per minute keeps its breathing rate. The estimate also carries the heart-rate SNR for validation tools; the browser bridge is unchanged.
+
+Known limit found by the same scenario: with no pulse in the skin colour, the heart rate is still reported, at low confidence, 30 bpm off on average. On the simulation, the SNR of noise (-6.3 to -0.4 dB, 5th to 95th percentile) touches that of a weak pulse on dark skin (-0.6 to 5.3 dB), and real cameras give lower SNR than the simulation, so a cut is set only from recorded sessions against a reference device.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).
+- Decision pending: minimum SNR (or periodicity) for reporting a heart rate, from the error against a reference device by SNR on recorded sessions.

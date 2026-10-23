@@ -138,6 +138,55 @@ func TestHeartRateFailureAfterWarmupGivesAReason(t *testing.T) {
 	assertInvalid(t, s.Estimate(pushAll(s, xs)), quality.ReasonWarmingUp)
 }
 
+func TestBreathingHasItsOwnConfidence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		spoil   func(x *Sample)
+		reason  quality.Reason
+		visible bool
+	}{
+		{"no pulse", func(x *Sample) { x.R, x.G, x.B = 150, 110, 90 }, quality.ReasonWarmingUp, true},
+		{"dark room", func(x *Sample) { x.R, x.G, x.B, x.Light = 12, 8, 6, 15 }, quality.ReasonLowLight, true},
+		{"no face", func(x *Sample) { x.Face, x.R, x.G, x.B, x.Light = false, 0, 0, 0, 0 }, quality.ReasonNoFace, false},
+		{"moving", func(x *Sample) { x.Motion = 0.2 }, quality.ReasonMotion, false},
+		{"talking", func(x *Sample) { x.Mouth = 0.02 + 0.1*math.Sin(x.TimeMs/150) }, quality.ReasonTalking, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			xs := synthSamples(72, 10, 40, 30)
+			for i := range xs {
+				tc.spoil(&xs[i])
+			}
+			s := New(DefaultConfig())
+			e := s.Estimate(pushAll(s, xs))
+			if e.Confidence != quality.ConfidenceInvalid || e.Reason != tc.reason || !math.IsNaN(e.HRBpm) {
+				t.Fatalf("confidence %v reason %v HR %v, want invalid %v and no HR", e.Confidence, e.Reason, e.HRBpm, tc.reason)
+			}
+			if !tc.visible {
+				if !math.IsNaN(e.RRRpm) || e.Phase != resp.PhaseUnknown {
+					t.Fatalf("RR %v phase %v, want NaN and unknown", e.RRRpm, e.Phase)
+				}
+				return
+			}
+			if math.Abs(e.RRRpm-10) > 1 || e.Phase == resp.PhaseUnknown {
+				t.Fatalf("RR %.2f phase %v, want 10 ± 1 and a known phase", e.RRRpm, e.Phase)
+			}
+		})
+	}
+}
+
+func TestEstimateCarriesTheHeartRateSNR(t *testing.T) {
+	s := New(DefaultConfig())
+	e := s.Estimate(pushAll(s, synthSamples(72, 6, 20, 30)))
+	assertHeartRate(t, e, 72)
+	if !(e.SNRdB > 3) {
+		t.Fatalf("SNR %v dB on a clean pulse, want above 3", e.SNRdB)
+	}
+	s = New(DefaultConfig())
+	if e := s.Estimate(pushAll(s, synthSamples(72, 6, 5, 30))); !math.IsNaN(e.SNRdB) {
+		t.Fatalf("SNR %v dB while warming up, want NaN", e.SNRdB)
+	}
+}
+
 func TestMotionIsMeasuredPerSecond(t *testing.T) {
 	for _, tc := range []struct {
 		fps    float64
@@ -168,12 +217,14 @@ func TestMotionBurstOnlyCostsTheBurstAndTheWarmup(t *testing.T) {
 	s := New(DefaultConfig())
 	pushed := len(until(xs, 32000))
 	pushAll(s, xs[:pushed])
-	if e := s.Estimate(32000); e.Reason != quality.ReasonMotion {
-		t.Fatalf("during the burst: reason %v, want too_much_motion", e.Reason)
+	if e := s.Estimate(32000); e.Reason != quality.ReasonMotion || !math.IsNaN(e.RRRpm) {
+		t.Fatalf("during the burst: reason %v RR %v, want too_much_motion and no RR", e.Reason, e.RRRpm)
 	}
 	next := len(until(xs, 36000))
 	pushAll(s, xs[pushed:next])
-	assertInvalid(t, s.Estimate(36000), quality.ReasonWarmingUp)
+	if e := s.Estimate(36000); e.Reason != quality.ReasonWarmingUp || !math.IsNaN(e.HRBpm) || math.Abs(e.RRRpm-6) > 1 {
+		t.Fatalf("after the burst: reason %v HR %v RR %v, want warming_up, no HR and RR 6 ± 1", e.Reason, e.HRBpm, e.RRRpm)
+	}
 	pushed, next = next, len(until(xs, 44000))
 	pushAll(s, xs[pushed:next])
 	assertHeartRate(t, s.Estimate(44000), 72)
