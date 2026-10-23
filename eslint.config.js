@@ -6,7 +6,7 @@ const BANNED = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'localSto
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', 'engine/**'] },
   {
-    files: ['packages/**/src/**/*.ts', 'apps/**/src/**/*.ts'],
+    files: ['packages/**/src/**/*.ts', 'apps/**/src/**/*.ts', 'tools/**/src/**/*.ts'],
     extends: [eslint.configs.recommended, ...tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -27,7 +27,7 @@ export default tseslint.config(
   },
   {
     // Outside the typed projects: untyped recommended rules only.
-    files: ['apps/demo/e2e/**/*.ts', 'apps/demo/*.mjs'],
+    files: ['apps/demo/e2e/**/*.ts', 'apps/demo/*.mjs', 'tools/**/*.mjs'],
     extends: [eslint.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly' } },
   },
