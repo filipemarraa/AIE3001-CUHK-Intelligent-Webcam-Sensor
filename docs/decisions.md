@@ -104,6 +104,13 @@ Tested on a matrix of 6, 10, 15 and 24 breaths per minute, pauses starting at se
 
 Landmark motion is divided by the time since the previous face frame, so the threshold (0.75 interocular distances per second, the old per-frame limit at about 15 fps) does not change when the frame rate changes. Frames above it are left out of the heart-rate window, and only the last 2 s of motion decide the `too_much_motion` reason. A burst of motion now costs the burst plus a fresh 10 s warm-up, instead of the burst plus a full 15 s window, and corrupted frames never enter the estimate. When the heart-rate extraction fails after the warm-up, the reason is `warming_up` instead of none, so no empty value is shown without a reason.
 
+## 18. Breathing is not hidden by a missing pulse
+
+The breathing rate and phase come from the shoulders, not from the skin colour, so they are reported whenever breathing passes its own test (decision 16) and nothing that also disturbs the shoulders is present: a face in view, no motion above the limit and no talking, checked on the measurements themselves rather than on the first reason, so talking in a dark room still hides them. A missing pulse (`warming_up`) or a dark room (`low_light`) no longer hides breathing. The module keeps the breathing the engine reports even when the confidence is `invalid` (the confidence describes the heart rate), and the summary averages every breathing rate reported. The demo already shows the measured phase in that case; its numbers panel still hides both numbers while the heart rate is invalid. On the benchmark, breathing coverage rose from 87% to 100% with a lost face and from 67% to 86% with motion bursts, and a new scenario with no pulse at all and steady breathing at 10 per minute keeps its breathing rate. The estimate also carries the heart-rate SNR for validation tools; the browser bridge is unchanged.
+
+Known limit found by the same scenario: with no pulse in the skin colour, the heart rate is still reported, at low confidence, 30 bpm off on average. On the simulation, the SNR of noise (-6.3 to -0.4 dB, 5th to 95th percentile) touches that of a weak pulse on dark skin (-0.6 to 5.3 dB), and real cameras give lower SNR than the simulation, so a cut is set only from recorded sessions against a reference device.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).
+- Decision pending: minimum SNR (or periodicity) for reporting a heart rate, from the error against a reference device by SNR on recorded sessions.

@@ -33,8 +33,8 @@ describe('decodeEstimate', () => {
     expect(Array.from(pulse)).toEqual([0.1, -0.2, 0.3]);
   });
 
-  it('nulls hr, rr and phase when invalid', () => {
-    const out = header({ hr: 70, rr: 15, phase: 2, confidence: 3, reason: 2 });
+  it('nulls the heart rate when invalid', () => {
+    const out = header({ hr: 70, confidence: 3, reason: 2 });
     const { estimate, pulse } = decodeEstimate(out);
     expect(estimate).toMatchObject({
       hrBpm: null,
@@ -44,6 +44,17 @@ describe('decodeEstimate', () => {
       reason: 'too_much_motion',
     });
     expect(pulse.length).toBe(0);
+  });
+
+  it('keeps the breathing the engine reports while the heart rate is invalid', () => {
+    const out = header({ hr: 70, rr: 9.6, phase: 2, confidence: 3, reason: 5 });
+    expect(decodeEstimate(out).estimate).toMatchObject({
+      hrBpm: null,
+      rrRpm: 9.6,
+      breathPhase: 'out',
+      confidence: 'invalid',
+      reason: 'warming_up',
+    });
   });
 
   it.each([

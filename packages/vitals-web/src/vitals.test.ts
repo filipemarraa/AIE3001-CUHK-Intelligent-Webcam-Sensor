@@ -461,6 +461,20 @@ describe('createVitals', () => {
     },
   );
 
+  it('averages breathing reported while the heart rate is still settling', async () => {
+    const t = setup();
+    const started = t.vitals.start({ video: t.video.asElement() });
+    await flush();
+    t.worker().send({ type: 'ready' });
+    await started;
+
+    t.worker().send({ type: 'estimate', estimate: estimate({ reason: 'warming_up', rrRpm: 9, breathPhase: 'in' }) });
+    t.worker().send({ type: 'estimate', estimate: valid(72, 0.8, 11) });
+    t.vitals.stop();
+
+    expect(t.vitals.summary()?.rrMean).toBe(10);
+  });
+
   it('summarises the session like the mock', async () => {
     const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
     const t = setup();

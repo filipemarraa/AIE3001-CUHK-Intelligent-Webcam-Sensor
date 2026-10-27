@@ -23,6 +23,7 @@ type Estimate struct {
 	HRBpm, RRRpm float64
 	Phase        resp.Phase
 	Quality      float64
+	SNRdB        float64
 	Confidence   quality.Confidence
 	Reason       quality.Reason
 	Pulse        []float64
@@ -129,7 +130,7 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 	if !isFinite(ref) {
 		ref = 0
 	}
-	e := Estimate{TimeMs: ref, HRBpm: math.NaN(), RRRpm: math.NaN(), Confidence: quality.ConfidenceInvalid}
+	e := Estimate{TimeMs: ref, HRBpm: math.NaN(), RRRpm: math.NaN(), SNRdB: math.NaN(), Confidence: quality.ConfidenceInvalid}
 	hrFrom := s.since(ref - s.cfg.HRWindowS*1000)
 	if hrFrom == s.n {
 		s.prevPhase = resp.PhaseUnknown
@@ -153,9 +154,13 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 		e.Pulse = hr.Pulse[max(0, len(hr.Pulse)-MaxPulseLen):]
 	}
 	if e.Confidence == quality.ConfidenceInvalid {
+		// The shoulders do not need the skin colour: a missing pulse or a dark room leaves breathing to its own test.
+		if breathErr == nil && !quality.BreathingBlocked(in) {
+			e.RRRpm, e.Phase = breath.RPM, breath.Phase
+		}
 		return e
 	}
-	e.HRBpm = hr.BPM
+	e.HRBpm, e.SNRdB = hr.BPM, hr.SNRdB
 	if breathErr == nil {
 		e.RRRpm, e.Phase = breath.RPM, breath.Phase
 	}

@@ -103,6 +103,11 @@ func Assess(in Inputs) Result {
 	return Result{Quality: q, Confidence: conf, Reason: r}
 }
 
+// BreathingBlocked reports what also disturbs the shoulders, whatever reason comes first for the heart rate.
+func BreathingBlocked(in Inputs) bool {
+	return in.FaceFraction < minFaceFraction || in.MotionP90 > MaxMotionPerS || in.MouthStd > maxMouthStd
+}
+
 func reason(in Inputs) Reason {
 	switch {
 	case in.FaceFraction < minFaceFraction:
