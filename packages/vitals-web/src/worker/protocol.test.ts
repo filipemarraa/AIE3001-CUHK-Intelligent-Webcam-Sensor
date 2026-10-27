@@ -39,6 +39,22 @@ describe('isFromWorker', () => {
     expect(isFromWorker({ type: 'samples', rows: [] })).toBe(true);
   });
 
+  it('accepts the skin colours of recorded samples only as rows of finite numbers', () => {
+    expect(isFromWorker({ type: 'samples', rows: [[1]], skins: [[1, 2, 3, 4, 5, 6]] })).toBe(true);
+    expect(isFromWorker({ type: 'samples', rows: [[1]], skins: [[1, Number.NaN]] })).toBe(false);
+    expect(isFromWorker({ type: 'samples', rows: [[1]], skins: [new Float64Array(6)] })).toBe(false);
+  });
+
+  it('accepts the overlay of skin regions only as finite numbers', () => {
+    const roi = { type: 'roi', width: 640, height: 480, boxes: [[1, 2, 3, 4]], polygons: [[0, 1, 2, 3, 4, 5, 6]] };
+    expect(isFromWorker(roi)).toBe(true);
+    expect(isFromWorker({ ...roi, width: Number.NaN })).toBe(false);
+    expect(isFromWorker({ ...roi, height: '480' })).toBe(false);
+    expect(isFromWorker({ ...roi, boxes: undefined })).toBe(false);
+    expect(isFromWorker({ ...roi, polygons: [['forehead', 1, 2]] })).toBe(false);
+    expect(isFromWorker({ ...roi, polygons: [new Float32Array(3)] })).toBe(false);
+  });
+
   it('rejects unknown type and non-objects', () => {
     expect(isFromWorker({ type: 'nope' })).toBe(false);
     expect(isFromWorker({})).toBe(false);

@@ -4,6 +4,7 @@ import { SAMPLE } from '../engine/layout.js';
 import { isFromWorker, type FromWorker, type ToWorker } from './protocol.js';
 import { motion, mouthOpening, shoulders } from './vision/metrics.js';
 import { meanRgb, roiBoxes, type Box, type Point } from './vision/roi.js';
+import { maskedMeanRgb, rasterize, skinPolygons, SKIN_REGIONS, type Polygon } from './vision/skin.js';
 
 export type VisionImage = Exclude<CanvasImageSource, SVGImageElement>;
 export type SensorSource = VisionImage & { close?(): void };
@@ -26,6 +27,9 @@ export interface SensorDeps {
   // Find landmarks every N frames and read the skin colour on every frame from the last skin region.
   landmarkEvery?: number;
   robustPixels?: boolean;
+  skin?: 'boxes' | 'anatomical';
+  // Post the skin regions of every frame, as coordinates, for a laboratory overlay.
+  debug?: boolean;
 }
 
 export interface Sensor {
@@ -69,19 +73,27 @@ function boundingBox(boxes: Box[]): Box {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-function skinColour(
-  faces: Point[][],
-  width: number,
-  height: number,
-  pixels: (rect: Box) => Uint8ClampedArray,
-  robust: boolean,
-): ReturnType<typeof meanRgb> {
-  const boxes = roiBoxes(faces, width, height);
+type Colour = ReturnType<typeof meanRgb>;
+
+function boxesColour(boxes: Box[], pixels: (rect: Box) => Uint8ClampedArray, robust: boolean): Colour {
   if (boxes.length === 0) return null;
   const rect = boundingBox(boxes);
   const local = boxes.map((b) => ({ x: b.x - rect.x, y: b.y - rect.y, w: b.w, h: b.h }));
   return meanRgb(pixels(rect), rect.w, local, { robust });
 }
+
+function regionsColour(
+  polygons: Polygon[],
+  width: number,
+  height: number,
+  pixels: (rect: Box) => Uint8ClampedArray,
+  robust: boolean,
+): Colour {
+  const mask = rasterize(polygons, width, height);
+  return mask === null ? null : maskedMeanRgb(pixels(mask.rect), mask, { robust });
+}
+
+const rgb = (c: Colour): number[] => (c === null ? [0, 0, 0] : [c.r, c.g, c.b]);
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -98,6 +110,11 @@ export function createSensor(deps: SensorDeps): Sensor {
   let costSum = 0;
   let costCount = 0;
   const recorded: number[][] = [];
+  const recordedSkins: number[][] = [];
+  let skins: number[] = [];
+  const anatomical = deps.skin === 'anatomical';
+  const record = deps.record === true;
+  const robust = deps.robustPixels === true;
   const reported = { vision: false, wasm: false };
 
   // Returns the landmarks for this frame and the per-frame motion; between detections both are carried over.
@@ -126,19 +143,37 @@ export function createSensor(deps: SensorDeps): Sensor {
     x[SAMPLE.shoulderY] = held?.y ?? 0;
     x[SAMPLE.shoulderW] = held?.w ?? 0;
     const face = faces[0];
-    const skin = face ? skinColour(faces, width, height, pixels, deps.robustPixels === true) : null;
-    if (!face || !skin) {
+    skins = [0, 0, 0, 0, 0, 0];
+    if (!face) {
+      if (deps.debug === true) post({ type: 'roi', width, height, boxes: [], polygons: [] });
       prevFace = null;
       return x;
     }
+    const boxes = roiBoxes(faces, width, height);
+    const polygons = anatomical || record || deps.debug === true ? skinPolygons(face, width, height) : [];
+    const fromBoxes = !anatomical || record ? boxesColour(boxes, pixels, robust) : null;
+    const fromRegions = anatomical || record ? regionsColour(polygons, width, height, pixels, robust) : null;
+    const skin = anatomical ? fromRegions : fromBoxes;
+    skins = [...rgb(fromBoxes), ...rgb(fromRegions)];
+    if (deps.debug === true) {
+      post({
+        type: 'roi',
+        width,
+        height,
+        boxes: boxes.map((b) => [b.x, b.y, b.w, b.h]),
+        polygons: polygons.map((p) => [SKIN_REGIONS.indexOf(p.region), ...p.points.flatMap((q) => [q.x, q.y])]),
+      });
+    }
+    // Mouth and motion come from the landmarks: a recording keeps them for the region that did find skin.
+    x[SAMPLE.mouth] = mouthOpening(face);
+    x[SAMPLE.motion] = located.motion;
+    prevFace = face;
+    if (skin === null) return x;
     x[SAMPLE.face] = 1;
     x[SAMPLE.r] = skin.r;
     x[SAMPLE.g] = skin.g;
     x[SAMPLE.b] = skin.b;
     x[SAMPLE.light] = skin.luma;
-    x[SAMPLE.mouth] = mouthOpening(face);
-    x[SAMPLE.motion] = located.motion;
-    prevFace = face;
     return x;
   }
 
@@ -148,7 +183,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     if (s <= second) return;
     second = s;
     const { estimate, pulse } = deps.engine.estimate(tMs);
-    if (recorded.length > 0) post({ type: 'samples', rows: recorded.splice(0) });
+    if (recorded.length > 0) post({ type: 'samples', rows: recorded.splice(0), skins: recordedSkins.splice(0) });
     post({ type: 'estimate', estimate });
     const frameCostMs = costCount === 0 ? 0 : costSum / costCount;
     // droppedFrames is counted on the main thread, which never sends the frames it drops.
@@ -180,7 +215,10 @@ export function createSensor(deps: SensorDeps): Sensor {
           return;
         }
         try {
-          if (deps.record === true) recorded.push(Array.from(x));
+          if (record) {
+            recorded.push(Array.from(x));
+            recordedSkins.push(skins);
+          }
           deps.engine.push(x);
           estimateOnNewSecond(deps.now(), tMs);
         } catch (e) {
@@ -198,6 +236,7 @@ export function createSensor(deps: SensorDeps): Sensor {
     reset() {
       deps.engine.reset();
       recorded.length = 0;
+      recordedSkins.length = 0;
       frames = 0;
       prevFace = null;
       landmarks = null;
@@ -210,12 +249,17 @@ export function createSensor(deps: SensorDeps): Sensor {
 
 export type Delegate = 'GPU' | 'CPU';
 
-export function faceOptions(assetsBaseUrl: string, delegate: Delegate): FaceLandmarkerOptions {
+export function faceOptions(
+  assetsBaseUrl: string,
+  delegate: Delegate,
+  minFaceConfidence?: number,
+): FaceLandmarkerOptions {
   return {
     baseOptions: { modelAssetPath: `${assetsBaseUrl}/mediapipe/face_landmarker.task`, delegate },
     runningMode: 'VIDEO',
     // A second person in view must never mix into the skin region.
     numFaces: 1,
+    ...(minFaceConfidence === undefined ? {} : { minFaceDetectionConfidence: minFaceConfidence }),
   };
 }
 
@@ -256,12 +300,14 @@ export async function allOrClose<T extends readonly Promise<{ close(): void }>[]
   throw failed.reason;
 }
 
-async function loadDetectors(assetsBaseUrl: string): Promise<Detectors> {
+async function loadDetectors(assetsBaseUrl: string, minFaceConfidence?: number): Promise<Detectors> {
   const vision = await import('@mediapipe/tasks-vision');
   // useModule = true: the classic loader fails inside a module worker with "ModuleFactory not set." (Task 7 spike).
   const fileset = await vision.FilesetResolver.forVisionTasks(`${assetsBaseUrl}/mediapipe/wasm`, true);
   const [face, pose] = await allOrClose([
-    withCpuFallback((d) => vision.FaceLandmarker.createFromOptions(fileset, faceOptions(assetsBaseUrl, d))),
+    withCpuFallback((d) =>
+      vision.FaceLandmarker.createFromOptions(fileset, faceOptions(assetsBaseUrl, d, minFaceConfidence)),
+    ),
     withCpuFallback((d) => vision.PoseLandmarker.createFromOptions(fileset, poseOptions(assetsBaseUrl, d))),
   ]);
   return {
@@ -292,7 +338,7 @@ export interface WorkerDeps {
   post: (m: FromWorker) => void;
   canvas: FrameCanvas | null;
   loadEngine: (assetsBaseUrl: string) => Promise<Engine>;
-  loadDetectors: (assetsBaseUrl: string) => Promise<Detectors>;
+  loadDetectors: (assetsBaseUrl: string, minFaceConfidence?: number) => Promise<Detectors>;
   now: () => number;
   width: number;
   height: number;
@@ -320,7 +366,7 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
     loading = true;
     const [e, d] = await Promise.allSettled([
       engine ?? deps.loadEngine(assetsBaseUrl),
-      deps.loadDetectors(assetsBaseUrl),
+      deps.loadDetectors(assetsBaseUrl, m.capture?.minFaceConfidence),
     ]);
     loading = false;
     if (e.status === 'fulfilled') engine = e.value;
@@ -342,6 +388,8 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
       record: m.record === true,
       landmarkEvery: m.capture?.landmarkEvery ?? 1,
       robustPixels: m.capture?.robustPixels === true,
+      skin: m.capture?.skin ?? 'boxes',
+      debug: m.debug === true,
     });
     post({ type: 'ready' });
   }

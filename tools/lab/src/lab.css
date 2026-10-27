@@ -1,0 +1,153 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f5;
+  --fg: #1c2420;
+  --muted: #5d6b63;
+  --line: #d5dbd6;
+  --card: #ffffff;
+  font-family: system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131815;
+    --fg: #e6ece8;
+    --muted: #9aa8a0;
+    --line: #2c3530;
+    --card: #1b211d;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 1.4rem;
+}
+
+header p,
+.legend {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: end;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.setup label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.live {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .live {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stage {
+  position: relative;
+}
+
+video,
+canvas {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+}
+
+video {
+  background: #000;
+}
+
+canvas {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.panel {
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+#reference {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+
+#reference input {
+  width: 6ch;
+}
+
+#references {
+  max-height: 160px;
+  overflow: auto;
+  padding-left: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.boxes {
+  color: #f5b301;
+}
+
+.regions {
+  color: #21c07a;
+}

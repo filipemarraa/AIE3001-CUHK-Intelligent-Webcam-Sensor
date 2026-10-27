@@ -74,9 +74,12 @@ engine/                 Go signal core, compiled to WebAssembly for the browser 
   resp/                 breathing rate and phase from shoulder movement
   quality/              signal quality, confidence level and reason
   session/              stateful session: 30 s ring buffer, combined estimate once per second
+  sim/, eval/           simulated sessions with known values, metrics, and replay of lab recordings
   cmd/wasm/             syscall/js entry point (push and estimate)
+  cmd/validate/         benchmark on the simulation, or on lab recordings with -replay
 packages/vitals-web/    framework-agnostic TypeScript module: contract, simulated module, real module, sensor worker
 apps/demo/              Angular demo app, production server with the exact CSP (serve.mjs), end-to-end tests (e2e/)
+tools/lab/              lab page for A/B recordings against a reference heart rate (not part of the demo)
 scripts/                WebAssembly build, pinned MediaPipe assets, fake camera video for the tests
 docs/                   design decisions, exhibition checklist and AI-use statement
 ```
@@ -145,12 +148,14 @@ One `Estimate` is emitted per second:
 |---|---|
 | `tMs` | end of the analysis window, in milliseconds |
 | `hrBpm` | heart rate, or `null` when it cannot be measured |
-| `rrRpm` | breathing rate, or `null` |
+| `rrRpm` | breathing rate, or `null`; breathing has its own test, so it can be present while `confidence` (which describes the heart rate) is `invalid` |
 | `breathPhase` | `in`, `out`, `hold` or `null` |
 | `quality` | 0 to 1 |
 | `confidence` | `high`, `medium`, `low` or `invalid` |
 | `reason` | why there is no value: `no_face`, `too_much_motion`, `low_light`, `talking`, `warming_up`, or `null` |
 | `method` | `pos` or `chrom` |
+
+Capture options under evaluation, all off by default: `capture.skin` (`'boxes'` or `'anatomical'`: polygons of the lower forehead, glabella and cheeks that follow the head), `capture.minFaceConfidence`, `capture.landmarkEvery`, `capture.robustPixels` and `capture.lockExposure`. Each becomes the default only after it wins an A/B against a reference device.
 
 The simulated module follows the same rules as the real one: 10 s of warm-up with no values, then values with a confidence, and periodic motion episodes with no value and a reason. `createMockVitals({ failWith: 'camera_denied' })` simulates a start failure.
 
@@ -165,6 +170,17 @@ The simulated module follows the same rules as the real one: 10 s of warm-up wit
 ## Validation plan
 
 Recorded sessions keep only the numeric samples and estimates, never frames. Each session is compared with a reference device (finger pulse oximeter, optionally a chest strap) using mean absolute error, Bland-Altman limits of agreement and a bootstrap over participants, reported per skin-tone group and lighting condition.
+
+The lab page records such sessions. It runs the real module with the chosen capture options, draws the skin regions over the video (both the boxes and the anatomical regions), takes the heart rate read from a reference device (timed when typing starts), and downloads a JSON-lines file with only numbers: every sample carries the colour of both skin regions, so one recording compares them on the same frames.
+
+```bash
+npm run build --workspace packages/vitals-web   # after build:wasm and fetch-assets, as for the demo
+npm run build --workspace tools/lab
+npm run serve --workspace tools/lab             # http://127.0.0.1:4301/
+cd engine && go run ./cmd/validate -replay ~/lab-P1-good-light.jsonl,~/lab-P2-low-light.jsonl
+```
+
+The replay runs the same engine session once per skin region and prints, per recording, the share of samples with a face (near zero for an empty scene), coverage of the reference readings, mean absolute error, 95th percentile, error of the high and medium readings, mean SNR and time to the first heart rate, then the error by SNR band over all recordings.
 
 ## References
 

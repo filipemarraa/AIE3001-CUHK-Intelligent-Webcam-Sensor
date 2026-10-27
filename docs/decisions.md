@@ -110,6 +110,12 @@ The breathing rate and phase come from the shoulders, not from the skin colour, 
 
 Known limit found by the same scenario: with no pulse in the skin colour, the heart rate is still reported, at low confidence, 30 bpm off on average. On the simulation, the SNR of noise (-6.3 to -0.4 dB, 5th to 95th percentile) touches that of a weak pulse on dark skin (-0.6 to 5.3 dB), and real cameras give lower SNR than the simulation, so a cut is set only from recorded sessions against a reference device.
 
+## 19. Anatomical skin regions, behind an option until an A/B wins
+
+The three boxes (forehead and two cheek squares) cover little skin and are axis-aligned: on a 148 px wide face they read 1,350 pixels, a tenth of the visible skin, and they collapse to almost nothing when the head tilts. The anatomical regions are polygons of the Face Landmarker mesh: the lower forehead (half way to the top landmarks, above the brows, so a fringe and the brows stay out), the glabella and both cheekbones, leaving out the lower face, which moves with speech and grows a beard. They were checked on the Face Landmarker output for a real face, where every region lies on skin and the mask holds 3.2 times the pixels of the boxes, and are tested on the MediaPipe canonical face: about three times the boxes, the same area with a 30° tilt, and the cheek on the far side left out past a 35° head turn (estimated from the depth of the face edges). A region below 20 pixels is dropped. The mask is one label image for the three channels and costs about 0.4 ms per frame.
+
+More pixels are not more accuracy by themselves, so the regions stay behind `capture.skin`, with the boxes as default, until recordings on the lab page show a lower error against a reference device. The same applies to a lower face detection threshold (`capture.minFaceConfidence`): the detector stops finding faces narrower than about 74 px (around 0.9 m from a laptop camera), 68 px at 0.3, and a lower threshold must not report faces in an empty scene.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).

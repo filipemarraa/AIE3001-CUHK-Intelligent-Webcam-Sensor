@@ -1,6 +1,8 @@
 export interface Point {
   x: number;
   y: number;
+  // Depth from the Face Landmarker, in about the units of x; smaller is closer to the camera.
+  z?: number;
 }
 
 export interface Box {

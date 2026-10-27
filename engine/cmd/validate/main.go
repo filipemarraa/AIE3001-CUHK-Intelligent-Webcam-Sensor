@@ -23,7 +23,21 @@ func main() {
 	seeds := flag.Int("seeds", 5, "runs per scenario, each with its own seed")
 	only := flag.String("scenario", "", "run only scenarios whose name contains this text")
 	jsonOut := flag.String("json", "", "also write the per-scenario means as JSON to this file")
+	recordings := flag.String("replay", "", "compare the skin regions of these lab recordings (JSONL, comma-separated) "+
+		"against their reference heart rate, instead of running the simulation")
 	flag.Parse()
+
+	if *recordings != "" {
+		out, err := replayTable(strings.Split(*recordings, ","))
+		if err == nil {
+			_, err = io.WriteString(os.Stdout, out)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	results := runSuite(*seeds, *only)
 	if _, err := io.WriteString(os.Stdout, table(results)); err != nil {

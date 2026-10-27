@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data:; style-src 'self'; object-src 'none'; base-uri 'none'"
+    />
+    <link rel="icon" href="data:," />
+    <title>Vitals lab</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Vitals lab</h1>
+        <p>A/B of the skin regions against a reference heart rate. Numbers only are saved, never video.</p>
+      </header>
+      <section class="setup">
+        <label>Participant code <input id="subject" value="P1" maxlength="12" /></label>
+        <label
+          >Condition
+          <select id="condition">
+            <option>good light</option>
+            <option>low light</option>
+            <option>empty scene</option>
+            <option>other</option>
+          </select>
+        </label>
+        <label
+          >Skin region in use
+          <select id="skin">
+            <option value="boxes">boxes</option>
+            <option value="anatomical">anatomical</option>
+          </select>
+        </label>
+        <label
+          >Face detection threshold
+          <select id="threshold">
+            <option value="0.5">0.5 (default)</option>
+            <option value="0.3">0.3</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="robust" /> robust pixels</label>
+        <label><input type="checkbox" id="exposure" /> lock exposure</label>
+        <div class="buttons">
+          <button id="start">Start</button>
+          <button id="stop" disabled>Stop</button>
+          <button id="download" disabled>Download JSONL</button>
+        </div>
+      </section>
+      <section class="live">
+        <div class="stage">
+          <video id="video" muted playsinline></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="panel">
+          <p id="status">Stopped</p>
+          <dl>
+            <dt>Heart rate</dt>
+            <dd id="hr">-</dd>
+            <dt>Breathing</dt>
+            <dd id="rr">-</dd>
+            <dt>Confidence</dt>
+            <dd id="confidence">-</dd>
+            <dt>Frame cost</dt>
+            <dd id="cost">-</dd>
+            <dt>Samples / face</dt>
+            <dd id="samples">0</dd>
+          </dl>
+          <form id="reference">
+            <label>Watch heart rate <input id="watch" inputmode="decimal" autocomplete="off" placeholder="72" /></label>
+            <button type="submit">Add</button>
+          </form>
+          <ol id="references"></ol>
+          <p class="legend"><span class="boxes">■</span> boxes <span class="regions">■</span> anatomical regions</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
