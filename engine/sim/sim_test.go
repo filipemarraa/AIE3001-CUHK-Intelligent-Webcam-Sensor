@@ -177,3 +177,119 @@ func std(x []float64) float64 {
 	}
 	return math.Sqrt(s / float64(len(x)))
 }
+
+// amplitude projects x onto a tone at hz, so it measures one harmonic of a signal sampled at ts seconds.
+func amplitude(ts, x []float64, hz float64) float64 {
+	var re, im float64
+	for i, t := range ts {
+		re += x[i] * math.Cos(2*math.Pi*hz*t)
+		im += x[i] * math.Sin(2*math.Pi*hz*t)
+	}
+	return 2 * math.Hypot(re, im) / float64(len(ts))
+}
+
+func TestHarmonicSetsTheSecondHarmonicOfThePulse(t *testing.T) {
+	for _, h := range []float64{0, 0.4, 1} {
+		sc := Base("x")
+		sc.BaseBPM, sc.DriftBPM, sc.RSABPM = 60, 0, 0
+		sc.Noise, sc.JitterMs = 0, 0
+		sc.Harmonic = h
+		var ts, g []float64
+		for _, x := range sc.Generate() {
+			ts, g = append(ts, x.TimeMs/1000), append(g, x.G)
+		}
+		ratio := amplitude(ts, g, 2) / amplitude(ts, g, 1)
+		if math.Abs(ratio-h) > 0.05 {
+			t.Errorf("harmonic %v: second over first harmonic = %.3f", h, ratio)
+		}
+	}
+}
+
+func TestHarmonicChangesAtHarmonicAtS(t *testing.T) {
+	sc := Base("x")
+	sc.BaseBPM, sc.DriftBPM, sc.RSABPM = 60, 0, 0
+	sc.Noise, sc.JitterMs = 0, 0
+	sc.Harmonic, sc.LaterHarmonic, sc.HarmonicAtS = 1.5, 0.6, 60
+	var ts, g [2][]float64
+	for _, x := range sc.Generate() {
+		half := 0
+		if x.TimeMs >= 60000 {
+			half = 1
+		}
+		ts[half], g[half] = append(ts[half], x.TimeMs/1000), append(g[half], x.G)
+	}
+	for half, want := range []float64{1.5, 0.6} {
+		if ratio := amplitude(ts[half], g[half], 2) / amplitude(ts[half], g[half], 1); math.Abs(ratio-want) > 0.05 {
+			t.Errorf("half %d: second over first harmonic = %.3f, want %v", half, ratio, want)
+		}
+	}
+}
+
+func TestColourDriftIsSlowAndIndependentPerChannel(t *testing.T) {
+	sc := Base("x")
+	sc.DurationS = 600
+	sc.PulseAmp, sc.Noise, sc.JitterMs = 0, 0, 0
+	sc.CostMs, sc.CostSDMs = 45, 12
+	sc.DriftNoise, sc.DriftTauS = 0.01, 1
+	var r, g []float64
+	for _, x := range sc.Generate() {
+		// The slow 0.05 Hz light swing is common to all channels; the ratio leaves only the drift.
+		r, g = append(r, x.R/LightSkin[0]), append(g, x.G/LightSkin[1])
+	}
+	rel := make([]float64, len(r))
+	for i := range r {
+		rel[i] = r[i] / g[i]
+	}
+	if sd := std(rel); sd < 0.01 || sd > 0.02 {
+		t.Errorf("std of R/G = %.4f, want about 0.014 (two independent channels of 0.01)", sd)
+	}
+	if ac := lag1(rel); ac < 0.9 {
+		t.Errorf("lag-1 autocorrelation %.2f, want above 0.9 for a 1 s time constant at ~16 fps", ac)
+	}
+}
+
+func TestNoDriftLeavesSamplesUnchanged(t *testing.T) {
+	sc := Base("x")
+	sc.CostMs, sc.CostSDMs = 45, 12
+	a := sc.Generate()
+	sc.DriftTauS = 1
+	if !slices.Equal(a, sc.Generate()) {
+		t.Fatal("a time constant without drift noise changed the samples")
+	}
+}
+
+func lag1(x []float64) float64 {
+	m := mean(x)
+	var num, den float64
+	for i := range x {
+		den += (x[i] - m) * (x[i] - m)
+		if i > 0 {
+			num += (x[i] - m) * (x[i-1] - m)
+		}
+	}
+	return num / den
+}
+
+// The suite must not be trivially easy: it spans the heart-rate band and includes the conditions that fool peak picking.
+func TestSuiteCoversHardHeartRates(t *testing.T) {
+	var minHR, maxHR, maxHarmonic, maxDrift float64 = math.Inf(1), 0, 0, 0
+	for _, sc := range Suite() {
+		if sc.PulseAmp == 0 {
+			continue
+		}
+		minHR, maxHR = min(minHR, sc.MeanHR(0, sc.DurationS)), max(maxHR, sc.MeanHR(0, sc.DurationS))
+		maxHarmonic, maxDrift = max(maxHarmonic, sc.Harmonic), max(maxDrift, sc.DriftNoise)
+		if sc.CostMs == 0 && sc.Name != "ideal" {
+			t.Errorf("%s: no worker cost, so no frames are dropped", sc.Name)
+		}
+	}
+	if minHR > 46 || maxHR < 170 {
+		t.Errorf("mean heart rates span %.0f to %.0f bpm, want 45 to 175", minHR, maxHR)
+	}
+	if maxHarmonic < 0.8 {
+		t.Errorf("strongest second harmonic %.2f, want a scenario at 0.8 or more", maxHarmonic)
+	}
+	if maxDrift == 0 {
+		t.Error("no scenario has coloured drift noise")
+	}
+}

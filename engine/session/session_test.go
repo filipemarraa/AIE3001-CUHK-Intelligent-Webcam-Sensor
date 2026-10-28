@@ -139,6 +139,7 @@ func TestHeartRateFailureAfterWarmupGivesAReason(t *testing.T) {
 }
 
 func TestBreathingHasItsOwnConfidence(t *testing.T) {
+	noise := rand.New(rand.NewPCG(3, 4))
 	for _, tc := range []struct {
 		name    string
 		spoil   func(x *Sample)
@@ -146,6 +147,9 @@ func TestBreathingHasItsOwnConfidence(t *testing.T) {
 		visible bool
 	}{
 		{"no pulse", func(x *Sample) { x.R, x.G, x.B = 150, 110, 90 }, quality.ReasonWarmingUp, true},
+		{"camera noise, no pulse", func(x *Sample) {
+			x.R, x.G, x.B = lightSkin[0]+0.1*noise.NormFloat64(), lightSkin[1]+0.1*noise.NormFloat64(), lightSkin[2]+0.1*noise.NormFloat64()
+		}, quality.ReasonWeakPulse, true},
 		{"dark room", func(x *Sample) { x.R, x.G, x.B, x.Light = 12, 8, 6, 15 }, quality.ReasonLowLight, true},
 		{"no face", func(x *Sample) { x.Face, x.R, x.G, x.B, x.Light = false, 0, 0, 0, 0 }, quality.ReasonNoFace, false},
 		{"moving", func(x *Sample) { x.Motion = 0.2 }, quality.ReasonMotion, false},
@@ -188,6 +192,37 @@ func TestEstimateCarriesTheHeartRateSNR(t *testing.T) {
 	s = New(DefaultConfig())
 	if e := s.Estimate(pushAll(s, synthSamples(72, 6, 5, 30))); !math.IsNaN(e.SNRdB) {
 		t.Fatalf("SNR %v dB while warming up, want NaN", e.SNRdB)
+	}
+}
+
+func TestQualityMeasuresSampleRateAndGaps(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		keep           func(i int, x Sample) bool
+		fps            float64
+		minGap, maxGap float64
+	}{
+		{"every frame", func(int, Sample) bool { return true }, 30, 34, 42},
+		{"backpressure", func(i int, _ Sample) bool { return i%2 == 0 }, 15, 67, 75},
+		{"stall", func(_ int, x Sample) bool { return x.TimeMs < 10000 || x.TimeMs > 10400 }, 30, 400, 445},
+		// A gap past the heart-rate limit restarts the warm-up, so it is not a timing fault of the window.
+		{"long gap", func(_ int, x Sample) bool { return x.TimeMs < 10000 || x.TimeMs > 11000 }, 30, 34, 42},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := New(DefaultConfig())
+			for i, x := range synthSamples(72, 6, 20, 30) {
+				if tc.keep(i, x) {
+					s.Push(x)
+				}
+			}
+			in := s.qualityInputs(0, s.lastMs)
+			if math.Abs(in.SampleRateHz-tc.fps) > 1 {
+				t.Errorf("sample rate %.2f Hz, want %v ± 1", in.SampleRateHz, tc.fps)
+			}
+			if in.MaxGapMs < tc.minGap || in.MaxGapMs > tc.maxGap {
+				t.Errorf("max gap %.1f ms, want %v to %v", in.MaxGapMs, tc.minGap, tc.maxGap)
+			}
+		})
 	}
 }
 
@@ -403,4 +438,28 @@ func TestResetClears(t *testing.T) {
 
 	now = pushAll(s, xs)
 	assertHeartRate(t, s.Estimate(now), 72)
+}
+
+func TestHeartRateIsTrackedAndResetForgetsIt(t *testing.T) {
+	xs := synthSamples(72, 6, 15, 30)
+	s := New(DefaultConfig())
+	now := pushAll(s, xs)
+	assertHeartRate(t, s.Estimate(now), 72)
+	if math.Abs(s.hr.prior(now)-72) > 2 {
+		t.Fatalf("tracked %v, want 72", s.hr.prior(now))
+	}
+	s.Reset()
+	if !math.IsNaN(s.hr.prior(now)) {
+		t.Fatal("tracked heart rate survives Reset")
+	}
+}
+
+func TestInvalidEstimateForgetsTheTrackedRate(t *testing.T) {
+	s := New(DefaultConfig())
+	now := pushAll(s, synthSamples(72, 6, 15, 30))
+	assertHeartRate(t, s.Estimate(now), 72)
+	assertInvalid(t, s.Estimate(now+5000), quality.ReasonWarmingUp)
+	if !math.IsNaN(s.hr.prior(now + 5000)) {
+		t.Fatal("tracked heart rate survives an invalid estimate")
+	}
 }

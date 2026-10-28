@@ -608,7 +608,8 @@ button.switch:hover {
   opacity: 0.5;
 }
 
-.metrics.faded .metric-value {
+.metrics.faded .metric-value,
+.metric-value.faded {
   color: var(--muted);
 }
 

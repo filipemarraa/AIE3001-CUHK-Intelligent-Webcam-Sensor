@@ -86,3 +86,15 @@ func TestBandpassIsZeroPhase(t *testing.T) {
 		t.Fatalf("correlation with input = %v, want >= 0.999", corr)
 	}
 }
+
+func TestBandpassPowerGainMatchesTheFilter(t *testing.T) {
+	const fs = 30.0
+	for _, hz := range []float64{0.75, 0.92, 1.5, 2.5, 2.9} {
+		x := sine(1800, fs, hz, 1)
+		y := Bandpass(x, fs, 0.7, 3.0)
+		measured := math.Pow(rms(y[300:1500])/rms(x[300:1500]), 2)
+		if got := BandpassPowerGain(hz, fs, 0.7, 3.0); math.Abs(got-measured) > 0.02 {
+			t.Errorf("%v Hz: gain %.3f, filter passes %.3f", hz, got, measured)
+		}
+	}
+}

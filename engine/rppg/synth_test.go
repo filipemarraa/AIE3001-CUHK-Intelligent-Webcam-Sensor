@@ -12,6 +12,7 @@ type synthConfig struct {
 	jitterMs   float64
 	dc         [3]float64
 	pulseAmp   float64
+	harmonic   float64 // second harmonic of the pulse; zero means the usual 0.4
 	flickerHz  float64
 	flickerAmp float64
 	noise      float64
@@ -25,9 +26,13 @@ func synth(c synthConfig) (ts, r, g, b []float64) {
 	n := int(c.durationS * c.fps)
 	f := c.bpm / 60
 	out := [3][]float64{}
+	harmonic := c.harmonic
+	if harmonic == 0 {
+		harmonic = 0.4
+	}
 	for i := 0; i < n; i++ {
 		t := float64(i)/c.fps + c.jitterMs/1000*(rng.Float64()-0.5)
-		pulse := math.Sin(2*math.Pi*f*t) + 0.4*math.Sin(4*math.Pi*f*t+0.5)
+		pulse := math.Sin(2*math.Pi*f*t) + harmonic*math.Sin(4*math.Pi*f*t+0.5)
 		light := 1 + c.flickerAmp*math.Sin(2*math.Pi*c.flickerHz*t) + 0.02*math.Sin(2*math.Pi*0.05*t)
 		ts = append(ts, t*1000)
 		for k := range out {

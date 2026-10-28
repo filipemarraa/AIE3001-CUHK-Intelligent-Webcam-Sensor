@@ -86,6 +86,22 @@ describe('VitalsService', () => {
     expect(service.screen()).toBe('exercise');
   });
 
+  it('moves to the exercise on a weak pulse, and on breathing while the heart rate is invalid', async () => {
+    await service.consentAndStart(video);
+    fake.emit('estimate', estimate({ hrBpm: null, rrRpm: 10, confidence: 'invalid', reason: 'weak_pulse' }));
+    expect(service.screen()).toBe('exercise');
+
+    service.exit();
+    await service.consentAndStart(video);
+    fake.emit('estimate', estimate({ hrBpm: null, rrRpm: null, confidence: 'invalid', reason: 'weak_pulse' }));
+    expect(service.screen()).toBe('exercise');
+
+    service.exit();
+    await service.consentAndStart(video);
+    fake.emit('estimate', estimate({ hrBpm: null, rrRpm: 9, confidence: 'invalid', reason: 'low_light' }));
+    expect(service.screen()).toBe('exercise');
+  });
+
   it('keeps diagnostics from the module', async () => {
     await service.consentAndStart(video);
     fake.emit('diagnostics', { frameCostMs: 12, droppedFrames: 1, pulse: [0.1] });

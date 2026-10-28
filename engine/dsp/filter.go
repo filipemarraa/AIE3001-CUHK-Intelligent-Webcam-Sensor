@@ -1,6 +1,9 @@
 package dsp
 
-import "math"
+import (
+	"math"
+	"math/cmplx"
+)
 
 func Detrend(x []float64) []float64 {
 	n := float64(len(x))
@@ -53,6 +56,26 @@ func (q biquad) apply(x []float64) []float64 {
 	return y
 }
 
+// powerGain is the power gain of the biquad for a tone at hz.
+func (q biquad) powerGain(hz, fs float64) float64 {
+	z1, z2 := cmplx.Rect(1, -2*math.Pi*hz/fs), cmplx.Rect(1, -4*math.Pi*hz/fs)
+	h := (complex(q.b0, 0) + complex(q.b1, 0)*z1 + complex(q.b2, 0)*z2) / (1 + complex(q.a1, 0)*z1 + complex(q.a2, 0)*z2)
+	return real(h)*real(h) + imag(h)*imag(h)
+}
+
+func bandpassStages(fs, lowHz, highHz float64) []biquad {
+	return []biquad{butterworthBiquad(fs, lowHz, true), butterworthBiquad(fs, highHz, false)}
+}
+
+// BandpassPowerGain is the power that Bandpass passes of a tone at hz: each stage runs forward and backward.
+func BandpassPowerGain(hz, fs, lowHz, highHz float64) float64 {
+	g := 1.0
+	for _, s := range bandpassStages(fs, lowHz, highHz) {
+		g *= s.powerGain(hz, fs) * s.powerGain(hz, fs)
+	}
+	return g
+}
+
 func reverse(x []float64) []float64 {
 	y := make([]float64, len(x))
 	for i, v := range x {
@@ -76,7 +99,7 @@ func Bandpass(x []float64, fs, lowHz, highHz float64) []float64 {
 		ext = append(ext, 2*x[len(x)-1]-x[len(x)-1-i])
 	}
 
-	stages := []biquad{butterworthBiquad(fs, lowHz, true), butterworthBiquad(fs, highHz, false)}
+	stages := bandpassStages(fs, lowHz, highHz)
 	for pass := 0; pass < 2; pass++ {
 		for _, s := range stages {
 			ext = s.apply(ext)

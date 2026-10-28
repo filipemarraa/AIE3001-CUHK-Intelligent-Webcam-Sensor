@@ -35,7 +35,8 @@ type HeartRate struct {
 	Pulse []float64
 }
 
-func EstimateHeartRate(tsMs, r, g, b []float64, cfg Config) (HeartRate, error) {
+// EstimateHeartRate uses priorBPM, the rate tracked so far or NaN, to choose between the pulse and its harmonics.
+func EstimateHeartRate(tsMs, r, g, b []float64, priorBPM float64, cfg Config) (HeartRate, error) {
 	if len(tsMs) < 2 || (tsMs[len(tsMs)-1]-tsMs[0])/1000 < cfg.MinDurationS {
 		return HeartRate{}, ErrTooShort
 	}
@@ -48,7 +49,7 @@ func EstimateHeartRate(tsMs, r, g, b []float64, cfg Config) (HeartRate, error) {
 	pulse := POS(grid[0], grid[1], grid[2], windowLen)
 	pulse = dsp.Bandpass(dsp.Detrend(pulse), cfg.SampleRateHz, cfg.LowHz, cfg.HighHz)
 
-	peak, err := dsp.DominantFrequency(pulse, cfg.SampleRateHz, cfg.LowHz, cfg.HighHz)
+	peak, err := dsp.HeartFrequency(pulse, cfg.SampleRateHz, cfg.LowHz, cfg.HighHz, priorBPM/60)
 	if err != nil {
 		return HeartRate{}, err
 	}
