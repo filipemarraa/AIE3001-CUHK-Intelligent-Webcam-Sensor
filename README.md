@@ -50,7 +50,7 @@ main thread (vitals-web)                    sensor.worker
 │ camera.ts                │ ───────────►  │ vision/face.ts    forehead + cheeks  │
 │  getUserMedia + rVFC     │  (transfer,   │ vision/pose.ts    shoulders y, width │
 │  at most 1 frame in      │   closed in   │ vision/quality.ts motion, light,     │
-│  flight, others dropped  │   the worker) │                   mouth, frame jitter│
+│  flight, others dropped  │   the worker) │                   mouth, frame rate  │
 │ vitals.ts (createVitals) │               │        │ Sample (numbers only)       │
 │  state machine, events   │  ◄─────────── │ engine/bridge.ts → Go WASM           │
 │                          │   Estimate    │   push(sample) / estimate(nowMs)     │

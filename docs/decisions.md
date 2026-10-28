@@ -120,6 +120,10 @@ More pixels are not more accuracy by themselves, so the regions stay behind `cap
 
 Below 1 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and inside the low end of a weak pulse on dark skin (-0.6 to 5.3 dB). On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 0%, and dark skin from 100% to 74% coverage with the same error. The value is provisional: recordings against a reference device set the final one.
 
+## 21. Frame timing is judged by the sample rate, not the jitter
+
+The timing part of the quality (a fifth of it) was the spread of the frame intervals, which reached its 20 ms limit under ordinary backpressure (intervals of 33, 67 and 100 ms), so it was always zero, though the resampler handles irregular times. It is now the samples per second, from no credit at 8 Hz to full credit at 20 Hz, and nothing when a gap longer than 250 ms (about half a beat at 120 bpm) is in the window. Gaps past the heart-rate limit (500 ms) are left out, since they already restart the warm-up. Quality stays in [0, 1]; on the benchmark the readings and the error are unchanged, and dark skin now has readings at high or medium confidence, none of them a confident mistake.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).

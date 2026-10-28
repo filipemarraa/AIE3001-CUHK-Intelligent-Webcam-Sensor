@@ -195,6 +195,37 @@ func TestEstimateCarriesTheHeartRateSNR(t *testing.T) {
 	}
 }
 
+func TestQualityMeasuresSampleRateAndGaps(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		keep           func(i int, x Sample) bool
+		fps            float64
+		minGap, maxGap float64
+	}{
+		{"every frame", func(int, Sample) bool { return true }, 30, 34, 42},
+		{"backpressure", func(i int, _ Sample) bool { return i%2 == 0 }, 15, 67, 75},
+		{"stall", func(_ int, x Sample) bool { return x.TimeMs < 10000 || x.TimeMs > 10400 }, 30, 400, 445},
+		// A gap past the heart-rate limit restarts the warm-up, so it is not a timing fault of the window.
+		{"long gap", func(_ int, x Sample) bool { return x.TimeMs < 10000 || x.TimeMs > 11000 }, 30, 34, 42},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := New(DefaultConfig())
+			for i, x := range synthSamples(72, 6, 20, 30) {
+				if tc.keep(i, x) {
+					s.Push(x)
+				}
+			}
+			in := s.qualityInputs(0, s.lastMs)
+			if math.Abs(in.SampleRateHz-tc.fps) > 1 {
+				t.Errorf("sample rate %.2f Hz, want %v ± 1", in.SampleRateHz, tc.fps)
+			}
+			if in.MaxGapMs < tc.minGap || in.MaxGapMs > tc.maxGap {
+				t.Errorf("max gap %.1f ms, want %v to %v", in.MaxGapMs, tc.minGap, tc.maxGap)
+			}
+		})
+	}
+}
+
 func TestMotionIsMeasuredPerSecond(t *testing.T) {
 	for _, tc := range []struct {
 		fps    float64

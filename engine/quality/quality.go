@@ -9,10 +9,17 @@ const (
 	minLight        = 40
 	goodLight       = 120
 	maxMouthStd     = 0.03
-	maxJitterMs     = 20
 	goodSNRdB       = 10
 	highQuality     = 0.75
 	mediumQuality   = 0.6
+)
+
+// The resampler handles irregular frame times, so timing is judged by the samples per second and the longest gap.
+// Below minSampleRateHz the pulse has too few samples per beat; maxGapMs is about half a beat at 120 bpm.
+const (
+	minSampleRateHz  = 8
+	goodSampleRateHz = 20
+	maxGapMs         = 250
 )
 
 // Below minSNRdB the spectral peak is as likely noise as pulse: with no pulse in the colour, the simulation reported a
@@ -77,7 +84,8 @@ type Inputs struct {
 	MotionP90    float64
 	LightMean    float64
 	MouthStd     float64
-	JitterMs     float64
+	SampleRateHz float64
+	MaxGapMs     float64
 	SNRdB        float64
 	HasHR        bool
 	WarmingUp    bool
@@ -93,7 +101,7 @@ func Assess(in Inputs) Result {
 	q := 0.4*unit(in.SNRdB/goodSNRdB) +
 		0.2*unit(1-in.MotionP90/MaxMotionPerS) +
 		0.2*unit((in.LightMean-minLight)/(goodLight-minLight)) +
-		0.2*unit(1-in.JitterMs/maxJitterMs)
+		0.2*timing(in)
 
 	r := reason(in)
 	conf := ConfidenceInvalid
@@ -131,6 +139,13 @@ func reason(in Inputs) Reason {
 		return ReasonWeakPulse
 	}
 	return ReasonNone
+}
+
+func timing(in Inputs) float64 {
+	if in.MaxGapMs > maxGapMs {
+		return 0
+	}
+	return unit((in.SampleRateHz - minSampleRateHz) / (goodSampleRateHz - minSampleRateHz))
 }
 
 func unit(x float64) float64 {

@@ -238,15 +238,19 @@ func (s *Session) qualityInputs(from int, ref float64) quality.Inputs {
 	}
 	in.MouthStd = stddev(mouth)
 
-	// Intervals across a gap are not jitter; the gap already restarts the warm-up.
-	intervals := s.stat[:0]
+	// Intervals across a gap are not a timing fault of the window; the gap already restarts the warm-up.
+	var count int
+	var spanMs float64
 	for i := from + 1; i < s.n; i++ {
 		if dt := s.at(i).TimeMs - s.at(i-1).TimeMs; dt <= s.cfg.RPPG.MaxGapMs {
-			intervals = append(intervals, dt)
+			count++
+			spanMs += dt
+			in.MaxGapMs = max(in.MaxGapMs, dt)
 		}
 	}
-	in.JitterMs = stddev(intervals)
-	s.stat = intervals
+	if spanMs > 0 {
+		in.SampleRateHz = float64(count) / (spanMs / 1000)
+	}
 	return in
 }
 
