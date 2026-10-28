@@ -250,11 +250,11 @@ describe('createVitals', () => {
     const frames = t.worker().posted.filter((p) => p.msg.type === 'frame');
     expect(frames.map((p) => p.msg)).toEqual([
       { type: 'frame', frame: FakeVideoFrame.created[0], tMs: 10 },
-      { type: 'frame', frame: FakeVideoFrame.created[3], tMs: 40 },
+      { type: 'frame', frame: FakeVideoFrame.created[1], tMs: 40 },
     ]);
-    expect(frames.map((p) => p.transfer)).toEqual([[FakeVideoFrame.created[0]], [FakeVideoFrame.created[3]]]);
-    expect(FakeVideoFrame.created[1]?.close).toHaveBeenCalledOnce();
-    expect(FakeVideoFrame.created[2]?.close).toHaveBeenCalledOnce();
+    expect(frames.map((p) => p.transfer)).toEqual([[FakeVideoFrame.created[0]], [FakeVideoFrame.created[1]]]);
+    // The frames dropped while the worker was busy were never copied.
+    expect(FakeVideoFrame.created).toHaveLength(2);
   });
 
   it('re-emits diagnostics with the frames dropped on the main thread since the last report', async () => {

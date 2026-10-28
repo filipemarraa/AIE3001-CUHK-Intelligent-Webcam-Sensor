@@ -40,7 +40,8 @@ export interface ExerciseSummary {
 
 // Capture improvements under evaluation; each stays off until it beats the current pipeline on recorded sessions.
 export interface CaptureOptions {
-  // Find face landmarks every N frames and read the skin colour on every frame.
+  // Find face landmarks every N frames and read the skin colour on every frame. Default 2, so a busy worker still
+  // reads the colour at the camera rate.
   landmarkEvery?: number;
   // Leave out saturated pixels and pixels far from the median brightness of each skin region.
   robustPixels?: boolean;

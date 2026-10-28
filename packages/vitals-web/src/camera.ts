@@ -153,15 +153,15 @@ export function startFrameLoop(
     }
     if (presented !== undefined) lastPresented = presented;
     const tMs = clock(metadata);
+    // At most one frame in flight: a frame is dropped only while the worker still holds the previous one.
+    if (isBusy()) {
+      onDrop();
+      return;
+    }
     let frame: VideoFrame;
     try {
       frame = new VideoFrame(video);
     } catch {
-      onDrop();
-      return;
-    }
-    if (isBusy()) {
-      frame.close();
       onDrop();
       return;
     }

@@ -155,7 +155,7 @@ One `Estimate` is emitted per second:
 | `reason` | why there is no value: `no_face`, `too_much_motion`, `low_light`, `talking`, `warming_up`, `weak_pulse` (the pulse is too weak to tell from noise), or `null` |
 | `method` | `pos` or `chrom` |
 
-Capture options under evaluation, all off by default: `capture.skin` (`'boxes'` or `'anatomical'`: polygons of the lower forehead, glabella and cheeks that follow the head), `capture.minFaceConfidence`, `capture.landmarkEvery`, `capture.robustPixels` and `capture.lockExposure`. Each becomes the default only after it wins an A/B against a reference device.
+Capture options under evaluation, all off by default: `capture.skin` (`'boxes'` or `'anatomical'`: polygons of the lower forehead, glabella and cheeks that follow the head), `capture.minFaceConfidence`, `capture.robustPixels` and `capture.lockExposure`. Each becomes the default only after it wins an A/B against a reference device. `capture.landmarkEvery` is 2 by default: face landmarks on every second frame, the skin colour on every frame from the last landmarks; set it to 1 for landmarks on every frame.
 
 The simulated module follows the same rules as the real one: 10 s of warm-up with no values, then values with a confidence, and periodic motion episodes with no value and a reason. `createMockVitals({ failWith: 'camera_denied' })` simulates a start failure.
 
