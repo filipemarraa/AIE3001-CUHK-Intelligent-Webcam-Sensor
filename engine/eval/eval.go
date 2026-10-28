@@ -14,6 +14,10 @@ import (
 // FalseConfidentBPM is the error above which a high or medium reading counts as a confident mistake.
 const FalseConfidentBPM = 5
 
+// HarmonicTolerance is the relative distance from twice or half the true heart rate within which a reading counts as
+// locked on a harmonic instead of the pulse.
+const HarmonicTolerance = 0.1
+
 type Point struct {
 	TimeS                float64
 	HR, RR               float64
@@ -29,6 +33,7 @@ type Metrics struct {
 	HRMAE            float64
 	HRP95            float64
 	HRFalseConfident float64
+	HRHarmonic       float64
 	FirstHRS         float64
 	RRCoverage       float64
 	RRMAE            float64
@@ -64,7 +69,7 @@ func point(sc sim.Scenario, cfg session.Config, e session.Estimate) Point {
 func Summarize(pts []Point, hrFromS, rrFromS float64) Metrics {
 	m := Metrics{FirstHRS: math.NaN()}
 	var hrErr, rrErr []float64
-	var hrN, rrN, confident, confidentWrong, clear, calls, agree int
+	var hrN, rrN, harmonic, confident, confidentWrong, clear, calls, agree int
 	for _, p := range pts {
 		if !math.IsNaN(p.HR) && math.IsNaN(m.FirstHRS) {
 			m.FirstHRS = p.TimeS
@@ -74,6 +79,9 @@ func Summarize(pts []Point, hrFromS, rrFromS float64) Metrics {
 			if !math.IsNaN(p.HR) {
 				err := math.Abs(p.HR - p.TrueHR)
 				hrErr = append(hrErr, err)
+				if isHarmonic(p.HR, p.TrueHR) {
+					harmonic++
+				}
 				if p.Confidence == quality.ConfidenceHigh || p.Confidence == quality.ConfidenceMedium {
 					confident++
 					if err > FalseConfidentBPM {
@@ -103,6 +111,7 @@ func Summarize(pts []Point, hrFromS, rrFromS float64) Metrics {
 	m.HRMAE = mean(hrErr)
 	m.HRP95 = percentile(hrErr, 0.95)
 	m.HRFalseConfident = ratio(confidentWrong, confident)
+	m.HRHarmonic = ratio(harmonic, len(hrErr))
 	m.RRCoverage = ratio(len(rrErr), rrN)
 	m.RRMAE = mean(rrErr)
 	m.PhaseCallRate = ratio(calls, clear)
@@ -131,6 +140,10 @@ func Mean(ms []Metrics) Metrics {
 		dst.Field(f).SetFloat(mean(vals))
 	}
 	return out
+}
+
+func isHarmonic(hr, truth float64) bool {
+	return math.Abs(hr-2*truth) <= HarmonicTolerance*2*truth || math.Abs(hr-truth/2) <= HarmonicTolerance*truth/2
 }
 
 func ratio(a, b int) float64 {

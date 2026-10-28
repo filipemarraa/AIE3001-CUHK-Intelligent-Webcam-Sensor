@@ -38,6 +38,20 @@ func TestSummarizeHeartRate(t *testing.T) {
 	}
 }
 
+func TestSummarizeCountsHarmonicErrors(t *testing.T) {
+	pts := []Point{
+		{TimeS: 12, HR: 120, TrueHR: 60},
+		{TimeS: 13, HR: 75, TrueHR: 150},
+		{TimeS: 14, HR: 62, TrueHR: 60},
+		{TimeS: 15, HR: 90, TrueHR: 60},
+		{TimeS: 16, HR: nan, TrueHR: 60},
+	}
+	m := Summarize(pts, 12, 30)
+	if m.HRHarmonic != 0.5 {
+		t.Fatalf("harmonic error rate = %v, want 0.5 (double and half of 4 readings)", m.HRHarmonic)
+	}
+}
+
 func TestSummarizeBreathingAndPhase(t *testing.T) {
 	pts := []Point{
 		{TimeS: 30, HR: 70, RR: 6.5, Phase: resp.PhaseIn, TrueHR: 70, TrueRR: 6, Inhaling: true, PhaseClear: true},
