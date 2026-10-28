@@ -51,11 +51,15 @@ func nextPow2(n int) int {
 }
 
 // HalfPowerRatio is how much of the strongest peak's power the peak at half its frequency needs to be taken for the
-// fundamental: the second harmonic of a slow pulse can outgrow the pulse itself, but half the frequency of a fast pulse
-// only holds noise.
+// fundamental when it is also closer to the tracked rate: the second harmonic of a slow pulse can outgrow the pulse
+// itself, but half the frequency of a fast pulse only holds noise.
 const HalfPowerRatio = 0.5
 
-// HarmonicSearchHz is how far from exactly half or twice the strongest peak a candidate peak may sit.
+// HalfOverrideRatio is the share of the strongest peak's power with which half its frequency wins even against the
+// tracked rate, so a tracker that sits on the harmonic lets go of it.
+const HalfOverrideRatio = 0.6
+
+// HarmonicSearchHz is how far from exactly half the strongest peak a candidate peak may sit.
 const HarmonicSearchHz = 0.05
 
 func DominantFrequency(x []float64, fs, lowHz, highHz float64) (Peak, error) {
@@ -66,9 +70,10 @@ func DominantFrequency(x []float64, fs, lowHz, highHz float64) (Peak, error) {
 	return sp.peak(sp.best)
 }
 
-// HeartFrequency is DominantFrequency for a pulse, whose strongest peak may be its second harmonic. Half the strongest
-// frequency replaces it when it holds HalfPowerRatio of its power, and twice it when it does; with a prior (NaN when
-// there is none) a candidate is taken only if it is closer to the prior, and twice the frequency needs a prior.
+// HeartFrequency is DominantFrequency for a pulse band-passed by Bandpass over the same band, whose strongest peak may
+// be its second harmonic. Half the strongest frequency replaces it when, with the band-pass gain undone, it holds
+// HalfOverrideRatio of its power, or HalfPowerRatio and it is closer to the prior (NaN when there is none). Twice the
+// strongest frequency is never taken: a prior on the harmonic would hold it there.
 func HeartFrequency(x []float64, fs, lowHz, highHz, priorHz float64) (Peak, error) {
 	sp, err := newSpectrum(x, fs, lowHz, highHz)
 	if err != nil {
@@ -78,12 +83,16 @@ func HeartFrequency(x []float64, fs, lowHz, highHz, priorHz float64) (Peak, erro
 	if err != nil {
 		return Peak{}, err
 	}
-	hasPrior := !math.IsNaN(priorHz)
-	closer := func(f float64) bool { return !hasPrior || math.Abs(f-priorHz) < math.Abs(top.FreqHz-priorHz) }
-	if k, ok := sp.candidate(top.FreqHz / 2); ok && closer(sp.freq(k)) {
-		return sp.peak(k)
+	k, ok := sp.candidate(top.FreqHz / 2)
+	if !ok {
+		return top, nil
 	}
-	if k, ok := sp.candidate(2 * top.FreqHz); ok && hasPrior && closer(sp.freq(k)) {
+	// The band-pass weakens a slow pulse against its harmonic: at 45 bpm it passes 0.3 of the pulse's power and 0.9
+	// of the harmonic's.
+	ratio := sp.power[k] / sp.power[sp.best] * BandpassPowerGain(top.FreqHz, fs, lowHz, highHz) /
+		BandpassPowerGain(sp.freq(k), fs, lowHz, highHz)
+	closer := math.IsNaN(priorHz) || math.Abs(sp.freq(k)-priorHz) < math.Abs(top.FreqHz-priorHz)
+	if ratio >= HalfOverrideRatio || ratio >= HalfPowerRatio && closer {
 		return sp.peak(k)
 	}
 	return top, nil
@@ -147,8 +156,7 @@ func (sp *spectrum) isLocalMax(k int) bool {
 	return k > 0 && k < len(sp.power)-1 && sp.power[k-1] < sp.power[k] && sp.power[k+1] < sp.power[k]
 }
 
-// candidate returns the strongest in-band local maximum within HarmonicSearchHz of hz, if it holds HalfPowerRatio of
-// the strongest peak's power.
+// candidate returns the strongest in-band local maximum within HarmonicSearchHz of hz.
 func (sp *spectrum) candidate(hz float64) (int, bool) {
 	lo := max(sp.kLo, int(math.Ceil((hz-HarmonicSearchHz)/sp.binHz)))
 	hi := min(sp.kHi, int(math.Floor((hz+HarmonicSearchHz)/sp.binHz)))
@@ -158,7 +166,7 @@ func (sp *spectrum) candidate(hz float64) (int, bool) {
 			best = k
 		}
 	}
-	return best, best >= 0 && sp.power[best] >= HalfPowerRatio*sp.power[sp.best]
+	return best, best >= 0
 }
 
 // peak refines bin k and measures its SNR.

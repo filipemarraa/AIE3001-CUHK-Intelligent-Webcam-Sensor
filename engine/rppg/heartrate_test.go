@@ -46,7 +46,7 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 }
 
 // The 1.6 s POS window and the band-pass weaken a 50 bpm pulse against its harmonic, which then has the stronger peak.
-func TestEstimateHeartRateTakesTheFundamentalUnlessThePriorSaysOtherwise(t *testing.T) {
+func TestEstimateHeartRateTakesTheFundamentalWhateverThePrior(t *testing.T) {
 	ts, r, g, b := synth(synthConfig{
 		bpm: 50, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, harmonic: 0.9, noise: 0.1, seed: 5,
 	})
@@ -59,7 +59,7 @@ func TestEstimateHeartRateTakesTheFundamentalUnlessThePriorSaysOtherwise(t *test
 	if raw, _ := dsp.DominantFrequency(pulse, cfg.SampleRateHz, cfg.LowHz, cfg.HighHz); math.Abs(raw.FreqHz*60-100) > 2 {
 		t.Fatalf("strongest peak at %.1f bpm; the test expects the harmonic at 100", raw.FreqHz*60)
 	}
-	cases := []struct{ prior, want float64 }{{math.NaN(), 50}, {55, 50}, {96, 100}}
+	cases := []struct{ prior, want float64 }{{math.NaN(), 50}, {55, 50}, {96, 50}}
 	for _, c := range cases {
 		hr, err := EstimateHeartRate(ts, r, g, b, c.prior, cfg)
 		if err != nil || math.Abs(hr.BPM-c.want) > 1.5 {
