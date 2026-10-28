@@ -118,7 +118,7 @@ More pixels are not more accuracy by themselves, so the regions stay behind `cap
 
 ## 20. A heart rate needs a pulse above the noise
 
-Below 1 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and inside the low end of a weak pulse on dark skin (-0.6 to 5.3 dB). On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 0%, and dark skin from 100% to 74% coverage with the same error. The value is provisional: recordings against a reference device set the final one.
+Below 1 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and inside the low end of a weak pulse on dark skin (-0.6 to 5.3 dB). On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 0%, and dark skin from 100% to 74% coverage with the same error. The value is provisional: recordings against a reference device set the final one. In the demo, a weak pulse or a breathing rate ends the calibration like a valid heart rate, since waiting does not strengthen the pulse, and the numbers panel keeps the breathing rate while it dashes the heart rate.
 
 ## 21. Frame timing is judged by the sample rate, not the jitter
 
