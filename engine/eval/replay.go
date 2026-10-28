@@ -375,3 +375,15 @@ func (rec Recording) FaceShare() float64 {
 	}
 	return float64(faces) / float64(len(rec.Samples))
 }
+
+// EffectiveFPS is the rate at which samples reached the engine, below the camera's frame rate when frames drop.
+func (rec Recording) EffectiveFPS() float64 {
+	if len(rec.Samples) < 2 {
+		return math.NaN()
+	}
+	spanMs := rec.Samples[len(rec.Samples)-1].Values[session.FieldTimeMs] - rec.Samples[0].Values[session.FieldTimeMs]
+	if spanMs <= 0 {
+		return math.NaN()
+	}
+	return float64(len(rec.Samples)-1) / (spanMs / 1000)
+}

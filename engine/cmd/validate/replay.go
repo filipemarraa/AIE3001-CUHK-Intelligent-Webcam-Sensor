@@ -16,8 +16,8 @@ func replayTable(paths []string, cfg eval.ReplayConfig) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Reference: mean over the last %g s of each estimate, at least %d readings; estimates of the first %g s "+
 		"(warm-up) are not scored.\n\n", cfg.ReferenceWindowS, cfg.MinReferences, cfg.Session.WarmupS)
-	b.WriteString("| recording | subject | condition | face | skin | references | evaluated | coverage | MAE | RMSE | ±5 bpm | bias | limits of agreement | harmonics | mean SNR dB | 1st HR s |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("| recording | subject | condition | fps | face | skin | references | evaluated | coverage | MAE | RMSE | ±5 bpm | bias | limits of agreement | harmonics | mean SNR dB | 1st HR s |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	pairs := map[string][]eval.Pair{}
 	evaluated := map[string]int{}
 	for _, path := range paths {
@@ -31,8 +31,8 @@ func replayTable(paths []string, cfg eval.ReplayConfig) (string, error) {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}
 		for _, r := range eval.CompareSkins(rec, cfg) {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d | %d | %s | %s | %s | %s |\n", filepath.Base(path),
-				rec.Subject, rec.Condition, pct(rec.FaceShare()), r.Skin, r.References, r.Evaluated, pct(r.Coverage()),
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %d | %d | %s | %s | %s | %s |\n", filepath.Base(path),
+				rec.Subject, rec.Condition, fps(rec.EffectiveFPS()), pct(rec.FaceShare()), r.Skin, r.References, r.Evaluated, pct(r.Coverage()),
 				errorCells(r.All), num(r.MeanSNRdB), num(r.FirstHRS))
 			pairs[r.Skin] = append(pairs[r.Skin], r.Pairs...)
 			evaluated[r.Skin] += r.Evaluated
@@ -76,4 +76,11 @@ func ratio(a, b int) float64 {
 		return math.NaN()
 	}
 	return float64(a) / float64(b)
+}
+
+func fps(v float64) string {
+	if math.IsNaN(v) {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f", v)
 }

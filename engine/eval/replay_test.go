@@ -76,6 +76,12 @@ func TestReadRecording(t *testing.T) {
 	if share := rec.FaceShare(); share != 1 {
 		t.Fatalf("face share %v, want 1", share)
 	}
+	if fps := rec.EffectiveFPS(); math.Abs(fps-30) > 0.5 {
+		t.Fatalf("effective frame rate %v, want about 30", fps)
+	}
+	if fps := (Recording{}).EffectiveFPS(); !math.IsNaN(fps) {
+		t.Fatalf("effective frame rate of no samples %v, want NaN", fps)
+	}
 	if len(rec.Samples) != len(sc.Generate()) || len(rec.References) != 2 {
 		t.Fatalf("%d samples and %d references, want %d and 2", len(rec.Samples), len(rec.References), len(sc.Generate()))
 	}

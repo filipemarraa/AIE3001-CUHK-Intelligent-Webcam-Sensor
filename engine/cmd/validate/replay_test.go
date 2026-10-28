@@ -39,7 +39,7 @@ func TestReplayTableHasARowPerSkinRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| p1.jsonl | P1 | good light | 100% | boxes | 1 | 0 | - |", "| p1.jsonl | P1 | good light | 100% | anatomical | 1 | 0 | - |", "SNR < 0 dB"} {
+	for _, want := range []string{"| p1.jsonl | P1 | good light | - | 100% | boxes | 1 | 0 | - |", "| p1.jsonl | P1 | good light | - | 100% | anatomical | 1 | 0 | - |", "SNR < 0 dB"} {
 		if !strings.Contains(table, want) {
 			t.Errorf("table lacks %q:\n%s", want, table)
 		}
@@ -90,7 +90,7 @@ func TestReplayTableScoresBySNRBand(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Reference: mean over the last 15 s of each estimate, at least 5 readings",
-		"| s1.jsonl | S1 | synthetic | 100% | anatomical | 59 | 50 | 100% |",
+		"| s1.jsonl | S1 | synthetic | 30.0 | 100% | anatomical | 59 | 50 | 100% |",
 		"| anatomical | all | 50 | 100% |",
 		"| anatomical | SNR ≥ 6 dB | 50 | 100% |",
 		"| anatomical | SNR < 0 dB | 0 | 0% | - |",
@@ -105,7 +105,7 @@ func TestReplayTableScoresBySNRBand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "| s1.jsonl | S1 | synthetic | 100% | anatomical | 59 | 0 | - |"; !strings.Contains(table, want) {
+	if want := "| s1.jsonl | S1 | synthetic | 30.0 | 100% | anatomical | 59 | 0 | - |"; !strings.Contains(table, want) {
 		t.Errorf("20 readings cannot fit in 5 s: table lacks %q:\n%s", want, table)
 	}
 }
