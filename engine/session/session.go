@@ -179,7 +179,7 @@ func (s *Session) heartRate(from int, ref float64) (rppg.HeartRate, float64, err
 		return rppg.HeartRate{}, 0, rppg.ErrTooShort
 	}
 	spanS := (s.ts[len(s.ts)-1] - s.ts[0]) / 1000
-	hr, err := rppg.EstimateHeartRate(s.ts, s.r, s.g, s.b, s.cfg.RPPG)
+	hr, err := rppg.EstimateHeartRate(s.ts, s.r, s.g, s.b, math.NaN(), s.cfg.RPPG)
 	return hr, spanS, err
 }
 
