@@ -18,6 +18,7 @@ func Base(name string) Scenario {
 		RPM:           6,
 		Skin:          LightSkin,
 		PulseAmp:      0.008,
+		Harmonic:      0.4,
 		Noise:         0.1,
 		Light:         130,
 		ShoulderAmp:   0.004,
@@ -91,5 +92,38 @@ func Suite() []Scenario {
 	noPulse.RPM = 10
 	noPulse.PulseAmp = 0
 
-	return []Scenario{ideal, realFPS, stalls, dark, flicker, motion, subtle, talking, faceLost, breath10, breath15, still, noPulse}
+	// A plain webcam: more sensor noise, and skin and camera drift that POS cannot cancel, which puts most of its power
+	// at the low end of the band.
+	webcam := realFPS
+	webcam.Noise = 0.3
+	webcam.DriftNoise, webcam.DriftTauS = 0.002, 1
+
+	// Below 90 bpm the second harmonic is inside the band too; above 140 bpm the half frequency is.
+	hr45 := atHeartRate(webcam, "hr_45bpm", 45)
+	hr50 := atHeartRate(webcam, "hr_50bpm", 50)
+	hr150 := atHeartRate(webcam, "hr_150bpm", 150)
+	hr175 := atHeartRate(webcam, "hr_175bpm", 175)
+
+	// A sharp dicrotic notch puts almost as much power in the second harmonic as in the pulse itself.
+	harmonic := atHeartRate(webcam, "strong_harmonic_58bpm", 58)
+	harmonic.Harmonic = 0.85
+
+	drift := webcam
+	drift.Name = "coloured_drift"
+	drift.DriftNoise = 0.004
+
+	poor := drift
+	poor.Noise = 0.5
+	poor45 := atHeartRate(poor, "low_snr_45bpm", 45)
+	poor175 := atHeartRate(poor, "low_snr_175bpm", 175)
+
+	return []Scenario{ideal, realFPS, stalls, dark, flicker, motion, subtle, talking, faceLost, breath10, breath15, still,
+		noPulse, hr45, hr50, hr150, hr175, harmonic, drift, poor45, poor175}
+}
+
+// atHeartRate holds the heart rate near bpm, with the small sinus arrhythmia of a seated person.
+func atHeartRate(sc Scenario, name string, bpm float64) Scenario {
+	sc.Name = name
+	sc.BaseBPM, sc.DriftBPM, sc.RSABPM = bpm, 0, 2
+	return sc
 }

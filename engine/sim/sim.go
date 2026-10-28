@@ -41,6 +41,12 @@ type Scenario struct {
 	FlickerAmp float64
 	Steps      []Step
 
+	// Harmonic is the second harmonic of the pulse waveform relative to the fundamental.
+	Harmonic float64
+	// DriftNoise is the standard deviation of a slow AR(1) gain on each colour channel, independent between channels
+	// so POS cannot cancel it; DriftTauS is its time constant.
+	DriftNoise, DriftTauS float64
+
 	Motion      []Burst
 	MotionAmp   float64
 	MotionSpeed float64
@@ -110,6 +116,8 @@ func (sc Scenario) Generate() []session.Sample {
 	}
 	emitted := 0
 	var shoulderY, shoulderW float64
+	var drift [3]float64
+	driftT := math.Inf(-1)
 	motionHz := 0.8 + 1.2*rng.Float64()
 
 	for i := 0; i < frames; i++ {
@@ -140,7 +148,11 @@ func (sc Scenario) Generate() []session.Sample {
 			continue
 		}
 		x.Face = true
-		x.R, x.G, x.B = sc.colour(t, cardiac, motionHz, rng)
+		if sc.DriftNoise > 0 {
+			sc.stepDrift(&drift, t-driftT, rng)
+			driftT = t
+		}
+		x.R, x.G, x.B = sc.colour(t, cardiac, motionHz, drift, rng)
 		x.Light = sc.Light
 		x.Mouth = 0.02 + 0.002*rng.NormFloat64()
 		if covered(sc.Talking, t) {
@@ -159,12 +171,20 @@ func (sc Scenario) Generate() []session.Sample {
 	return out
 }
 
-func (sc Scenario) colour(t, cardiac, motionHz float64, rng *rand.Rand) (r, g, b float64) {
-	pulse := math.Sin(cardiac) + 0.4*math.Sin(2*cardiac+0.5)
+// stepDrift advances the drift by dt seconds; the first step, with no previous one, draws from the stationary spread.
+func (sc Scenario) stepDrift(d *[3]float64, dt float64, rng *rand.Rand) {
+	a := math.Exp(-dt / sc.DriftTauS)
+	for k := range d {
+		d[k] = a*d[k] + sc.DriftNoise*math.Sqrt(1-a*a)*rng.NormFloat64()
+	}
+}
+
+func (sc Scenario) colour(t, cardiac, motionHz float64, drift [3]float64, rng *rand.Rand) (r, g, b float64) {
+	pulse := math.Sin(cardiac) + sc.Harmonic*math.Sin(2*cardiac+0.5)
 	light := 1 + sc.FlickerAmp*math.Sin(2*math.Pi*sc.FlickerHz*t) + 0.02*math.Sin(2*math.Pi*0.05*t)
 	var c [3]float64
 	for k := range c {
-		gain := 1.0
+		gain := 1 + drift[k]
 		for _, s := range sc.Steps {
 			if t >= s.AtS {
 				gain *= s.Gain[k]
