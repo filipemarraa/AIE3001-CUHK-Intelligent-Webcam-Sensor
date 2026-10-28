@@ -137,6 +137,25 @@ describe('serve.mjs', () => {
   });
 });
 
+describe('createServer with extra headers', () => {
+  it('replaces only the given headers, on files and on errors', async () => {
+    const extra = createServer(root, { 'Permissions-Policy': 'camera=(self), microphone=(), bluetooth=(self)' });
+    await new Promise((resolve) => extra.listen(0, '127.0.0.1', resolve));
+    const demoPort = port;
+    port = extra.address().port;
+    try {
+      for (const path of ['/main.js', '/missing.js']) {
+        const res = await get(path);
+        expect(res.headers['permissions-policy']).toBe('camera=(self), microphone=(), bluetooth=(self)');
+        expect(res.headers['content-security-policy']).toBe(EXACT_CSP);
+      }
+    } finally {
+      port = demoPort;
+      await new Promise((resolve) => extra.close(resolve));
+    }
+  });
+});
+
 describe('vercel.json', () => {
   it('sends the same security headers as serve.mjs on every path', async () => {
     const { readFileSync } = await import('node:fs');

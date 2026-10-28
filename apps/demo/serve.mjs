@@ -39,8 +39,8 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-function send(res, status, body) {
-  res.writeHead(status, { ...HEADERS, 'Content-Type': 'text/plain; charset=utf-8' });
+function send(res, headers, status, body) {
+  res.writeHead(status, { ...headers, 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(body);
 }
 
@@ -68,20 +68,22 @@ function isFile(file) {
   }
 }
 
-export function createServer(rootDir) {
+// extraHeaders replaces some of HEADERS, for tools served the same way (the lab adds Web Bluetooth).
+export function createServer(rootDir, extraHeaders = {}) {
   const root = resolve(rootDir);
+  const headers = { ...HEADERS, ...extraHeaders };
   return http.createServer((req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      send(res, 405, 'Method Not Allowed');
+      send(res, headers, 405, 'Method Not Allowed');
       return;
     }
     const target = resolveFile(root, req.url ?? '/');
     if (target === null || !isFile(target.file)) {
-      send(res, 404, 'Not Found');
+      send(res, headers, 404, 'Not Found');
       return;
     }
     const type = MIME[extname(target.file)] ?? 'application/octet-stream';
-    res.writeHead(200, { ...HEADERS, 'Content-Type': type });
+    res.writeHead(200, { ...headers, 'Content-Type': type });
     if (req.method === 'HEAD') {
       res.end();
       return;
