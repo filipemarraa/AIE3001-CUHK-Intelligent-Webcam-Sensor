@@ -10,6 +10,7 @@ describe('reasonText', () => {
     ['low_light', 'More light, please'],
     ['talking', 'Try not to talk'],
     ['warming_up', 'Getting a steady signal…'],
+    ['weak_pulse', 'Hold still and keep your face in the light'],
     [null, ''],
   ];
 

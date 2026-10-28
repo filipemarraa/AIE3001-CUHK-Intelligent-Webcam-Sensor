@@ -51,6 +51,8 @@ export interface Sensor {
 const POSE_EVERY_N_FRAMES = 2;
 // Reused landmarks older than this are not trusted: the head may have moved out of the old skin region.
 const MAX_LANDMARK_AGE_MS = 250;
+// Landmarks cost most of a frame; finding them every second frame lets a busy worker keep the colour at the camera rate.
+const DEFAULT_LANDMARK_EVERY = 2;
 const FRAME_WIDTH = 640;
 const FRAME_HEIGHT = 480;
 
@@ -104,7 +106,7 @@ export function createSensor(deps: SensorDeps): Sensor {
   let frames = 0;
   let prevFace: Point[] | null = null;
   let landmarks: { face: Point[]; tMs: number; frame: number; motion: number } | null = null;
-  const every = Math.max(1, Math.round(deps.landmarkEvery ?? 1));
+  const every = Math.max(1, Math.round(deps.landmarkEvery ?? DEFAULT_LANDMARK_EVERY));
   let held: { y: number; w: number } | null = null;
   let second: number | null = null;
   let costSum = 0;
@@ -119,7 +121,9 @@ export function createSensor(deps: SensorDeps): Sensor {
 
   // Returns the landmarks for this frame and the per-frame motion; between detections both are carried over.
   function locate(img: VisionImage, tMs: number): { faces: Point[][]; motion: number } {
-    const due = every === 1 || landmarks === null || frames % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
+    // Landmarks fall one frame after pose (pose runs on frames 0, 2, 4, ...), so no frame pays for both.
+    const due =
+      every === 1 || landmarks === null || (frames + 1) % every === 0 || tMs - landmarks.tMs > MAX_LANDMARK_AGE_MS;
     if (!due && landmarks !== null) return { faces: [landmarks.face], motion: landmarks.motion };
     const faces = deps.face.detect(img, tMs);
     const face = faces[0];
@@ -386,7 +390,7 @@ export function createWorkerHandler(deps: WorkerDeps): (m: ToWorker) => void {
       post: deps.post,
       now: deps.now,
       record: m.record === true,
-      landmarkEvery: m.capture?.landmarkEvery ?? 1,
+      landmarkEvery: m.capture?.landmarkEvery ?? DEFAULT_LANDMARK_EVERY,
       robustPixels: m.capture?.robustPixels === true,
       skin: m.capture?.skin ?? 'boxes',
       debug: m.debug === true,

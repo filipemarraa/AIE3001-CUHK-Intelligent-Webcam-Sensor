@@ -137,7 +137,9 @@ export class VitalsService {
       this.exit();
       return;
     }
-    if (this.screenState() === 'calibration' && e.confidence !== 'invalid') this.enterExercise();
+    // Breathing has its own test in the engine, and a weak pulse will not get better by waiting in calibration.
+    const readable = e.confidence !== 'invalid' || e.rrRpm !== null || e.reason === 'weak_pulse';
+    if (this.screenState() === 'calibration' && readable) this.enterExercise();
   }
 
   private enterExercise(): void {

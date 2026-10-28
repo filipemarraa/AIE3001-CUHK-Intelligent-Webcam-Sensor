@@ -24,6 +24,8 @@
     <div class="numbers" aria-live="polite">
       @if (invalid()) {
         <p class="reason">{{ reason() }}</p>
+      }
+      @if (invalid() && estimate()?.rrRpm == null) {
         <div class="metrics faded" aria-hidden="true">
           <p class="metric"><span class="metric-label">Heart rate</span> <span class="metric-value">— —</span></p>
           <p class="metric"><span class="metric-label">Breathing</span> <span class="metric-value">— —</span></p>
@@ -37,8 +39,12 @@
               </svg>
               Heart rate<span class="visually-hidden">:</span>
             </span>
-            <span class="metric-value"> {{ heartRate() }} </span>
-            <span class="metric-unit">bpm</span>
+            @if (invalid()) {
+              <span class="metric-value faded"> — — </span>
+            } @else {
+              <span class="metric-value"> {{ heartRate() }} </span>
+              <span class="metric-unit">bpm</span>
+            }
           </p>
           <p class="metric">
             <span class="metric-label">

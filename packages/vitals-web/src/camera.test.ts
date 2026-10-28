@@ -137,7 +137,7 @@ describe('startFrameLoop', () => {
     expect(onDrop).toHaveBeenCalledTimes(2);
   });
 
-  it('closes and drops frames while the worker is busy', () => {
+  it('drops frames while the worker is busy without copying them', () => {
     const video = new FakeVideo();
     const send = vi.fn();
     const onDrop = vi.fn();
@@ -150,11 +150,10 @@ describe('startFrameLoop', () => {
     video.present(3);
 
     expect(send).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledWith(FakeVideoFrame.created[2], 3);
     expect(onDrop).toHaveBeenCalledTimes(2);
-    expect(FakeVideoFrame.created[0]?.close).toHaveBeenCalledOnce();
-    expect(FakeVideoFrame.created[1]?.close).toHaveBeenCalledOnce();
-    expect(FakeVideoFrame.created[2]?.close).not.toHaveBeenCalled();
+    expect(FakeVideoFrame.created).toHaveLength(1);
+    expect(send).toHaveBeenCalledWith(FakeVideoFrame.created[0], 3);
+    expect(FakeVideoFrame.created[0]?.close).not.toHaveBeenCalled();
   });
 
   it('closes and drops a frame that could not be sent', () => {

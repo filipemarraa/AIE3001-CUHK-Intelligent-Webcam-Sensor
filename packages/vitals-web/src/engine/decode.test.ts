@@ -46,6 +46,17 @@ describe('decodeEstimate', () => {
     expect(pulse.length).toBe(0);
   });
 
+  it('nulls the heart rate of a weak pulse and keeps the breathing', () => {
+    const out = header({ hr: 104, rr: 10, phase: 1, confidence: 3, reason: 6 });
+    expect(decodeEstimate(out).estimate).toMatchObject({
+      hrBpm: null,
+      rrRpm: 10,
+      breathPhase: 'in',
+      confidence: 'invalid',
+      reason: 'weak_pulse',
+    });
+  });
+
   it('keeps the breathing the engine reports while the heart rate is invalid', () => {
     const out = header({ hr: 70, rr: 9.6, phase: 2, confidence: 3, reason: 5 });
     expect(decodeEstimate(out).estimate).toMatchObject({
@@ -72,6 +83,7 @@ describe('decodeEstimate', () => {
     [3, 'low_light'],
     [4, 'talking'],
     [5, 'warming_up'],
+    [6, 'weak_pulse'],
   ])('maps reason code %d to %s', (code, reason) => {
     expect(decodeEstimate(header({ confidence: 3, reason: code })).estimate.reason).toBe(reason);
   });

@@ -116,7 +116,19 @@ The three boxes (forehead and two cheek squares) cover little skin and are axis-
 
 More pixels are not more accuracy by themselves, so the regions stay behind `capture.skin`, with the boxes as default, until recordings on the lab page show a lower error against a reference device. The same applies to a lower face detection threshold (`capture.minFaceConfidence`): the detector stops finding faces narrower than about 74 px (around 0.9 m from a laptop camera), 68 px at 0.3, and a lower threshold must not report faces in an empty scene.
 
+## 20. A heart rate needs a pulse above the noise
+
+Below 0 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and at the low end of a weak pulse on dark skin (-0.6 to 5.3 dB); real cameras give a lower SNR than the simulation, so it is set low rather than at 1 dB, where dark skin lost a quarter of its readings. On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 3% at 7 bpm, and dark skin from 100% to 89% coverage with the same error. 0 dB until the oximeter/strap recordings (PR #11 replay) calibrate it. In the demo, a weak pulse or a breathing rate ends the calibration like a valid heart rate, since waiting does not strengthen the pulse, and the numbers panel keeps the breathing rate while it dashes the heart rate.
+
+## 21. Frame timing is judged by the sample rate, not the jitter
+
+The timing part of the quality (a fifth of it) was the spread of the frame intervals, which reached its 20 ms limit under ordinary backpressure (intervals of 33, 67 and 100 ms), so it was always zero, though the resampler handles irregular times. It is now the samples per second, from no credit at 8 Hz to full credit at 20 Hz, and nothing when a gap longer than 250 ms (about half a beat at 120 bpm) is in the window. Gaps past the heart-rate limit (500 ms) are left out, since they already restart the warm-up. Quality stays in [0, 1]; on the benchmark the readings and the error are unchanged, and dark skin now has readings at high or medium confidence, none of them a confident mistake.
+
+## 22. Skin colour on every frame, landmarks on every second one
+
+Only one frame is in flight to the worker; the camera frames that arrive while it is busy are dropped. When a frame costs more than the 33 ms between camera frames, every second frame is lost and the heart rate is measured at about 15 Hz, with half the samples per beat for averaging out the camera noise. The face landmarks are most of that cost, so `capture.landmarkEvery` is now 2 by default: the landmarks are found on every second frame, one frame after the pose, so no frame pays for both, and the skin colour is read on every frame from the last landmarks (never older than 250 ms). Robust pixels and the exposure lock stay off until an A/B. The main thread also no longer copies a frame it is about to drop.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).
-- Decision pending: minimum SNR (or periodicity) for reporting a heart rate, from the error against a reference device by SNR on recorded sessions.
+- Decision pending: final minimum SNR for reporting a heart rate (0 dB for now, decision 20), from the error against a reference device by SNR on recorded sessions.

@@ -75,6 +75,22 @@ describe('Exercise', () => {
     expect(el.querySelector('.metrics.faded')?.getAttribute('aria-hidden')).toBe('true');
   });
 
+  it('keeps the breathing and dashes only the heart rate on a weak pulse', async () => {
+    service.showNumbers.set(true);
+    fake.emit(
+      'estimate',
+      estimate({ hrBpm: null, rrRpm: 10, breathPhase: 'out', confidence: 'invalid', reason: 'weak_pulse' }),
+    );
+    await whenStable();
+
+    const text = el.textContent.replace(/\s+/g, ' ');
+    expect(text).toContain('Hold still and keep your face in the light');
+    expect(text).toContain('Heart rate: — —');
+    expect(text).toContain('Breathing: 10.0 breaths/min');
+    expect(text).not.toMatch(/bpm/);
+    expect(el.querySelector('.metrics.faded')).toBeNull();
+  });
+
   it('sets the breathing circle period from the target rhythm', () => {
     const circle = el.querySelector<HTMLElement>('.breath-circle');
     expect(circle?.style.getPropertyValue('--breath-period')).toBe(`${String(60 / TARGET_RPM)}s`);

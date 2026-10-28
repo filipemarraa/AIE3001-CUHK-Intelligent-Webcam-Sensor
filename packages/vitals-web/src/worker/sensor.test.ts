@@ -168,14 +168,13 @@ describe('createSensor', () => {
   it('spreads the motion between landmark frames over the frames in between', () => {
     let dx = 0;
     const s = setup({ landmarkEvery: 3, faces: () => [makeFace(dx)] });
-    s.frame(0);
-    s.frame(33);
-    s.frame(66);
+    // Landmarks on the first frame, then on frames 2, 5, 8, ...
+    for (let i = 0; i < 5; i++) s.frame(i * 33);
     dx = 0.048;
-    s.frame(100);
-    expect(s.pushed[3]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9); // 0.3 inter-ocular distances over 3 frames
-    s.frame(133);
-    expect(s.pushed[4]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9);
+    s.frame(166);
+    expect(s.pushed[5]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9); // 0.3 inter-ocular distances over 3 frames
+    s.frame(200);
+    expect(s.pushed[6]?.[SAMPLE.motion]).toBeCloseTo(0.1, 9);
   });
 
   it('looks for the face again when the last landmarks are older than 250 ms', () => {
@@ -188,12 +187,14 @@ describe('createSensor', () => {
   it('stops reusing a face that the next landmark frame no longer finds', () => {
     let present = true;
     const s = setup({ landmarkEvery: 2, faces: () => (present ? [makeFace()] : []) });
+    // Landmarks on frames 0, 1, 3, 5, ...; frame 2 reuses those of frame 1.
     s.frame(0);
-    present = false;
     s.frame(33);
+    present = false;
     s.frame(66);
     s.frame(100);
-    expect(s.pushed.map((x) => x[SAMPLE.face])).toEqual([1, 1, 0, 0]);
+    s.frame(133);
+    expect(s.pushed.map((x) => x[SAMPLE.face])).toEqual([1, 1, 1, 0, 0]);
   });
 
   it('posts the numeric samples of the last second with the estimate when recording', () => {
@@ -367,6 +368,20 @@ describe('createSensor', () => {
     s.frame(0);
     expect(s.pushed[0]?.[SAMPLE.shoulderY]).toBe(0);
     expect(s.pushed[0]?.[SAMPLE.shoulderW]).toBe(0);
+  });
+
+  it('with landmarkEvery 2 finds landmarks and pose on alternate frames, so no frame pays for both', () => {
+    const s = setup({ landmarkEvery: 2 });
+    const both: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const [face, pose] = [s.detectFace.mock.calls.length, s.detectPose.mock.calls.length];
+      s.frame(i * 33);
+      if (s.detectFace.mock.calls.length > face && s.detectPose.mock.calls.length > pose) both.push(i);
+    }
+    expect(s.detectFace).toHaveBeenCalledTimes(5);
+    expect(s.detectPose).toHaveBeenCalledTimes(4);
+    // The first frame has no landmarks to reuse.
+    expect(both).toEqual([0]);
   });
 
   it('runs pose on every second frame and holds the last shoulders in between', () => {
@@ -564,13 +579,12 @@ function handlerSetup(
     reset: () => undefined,
   };
   const closeDetectors = vi.fn();
+  const detectFace = vi.fn(() => {
+    clock.t += 4;
+    return [makeFace()];
+  });
   const detectors: Detectors = {
-    face: {
-      detect: () => {
-        clock.t += 4;
-        return [makeFace()];
-      },
-    },
+    face: { detect: detectFace },
     pose: { detect: () => POSE },
     close: closeDetectors,
   };
@@ -618,7 +632,7 @@ function handlerSetup(
     send({ type: 'frame', frame: { close } as unknown as VideoFrame, tMs });
     return close;
   };
-  const ready = async (capture?: { minFaceConfidence?: number }): Promise<void> => {
+  const ready = async (capture?: { minFaceConfidence?: number; landmarkEvery?: number }): Promise<void> => {
     send({ type: 'init', assetsBaseUrl: '/a', ...(capture === undefined ? {} : { capture }) });
     engineLoads.at(-1)?.resolve(engine);
     detectorLoads.at(-1)?.resolve(detectors);
@@ -632,6 +646,7 @@ function handlerSetup(
     engine,
     detectors,
     closeDetectors,
+    detectFace,
     engineLoads,
     detectorLoads,
     loadEngine,
@@ -664,6 +679,22 @@ describe('createWorkerHandler', () => {
     const h = handlerSetup();
     await h.ready({ minFaceConfidence: 0.3 });
     expect(h.loadDetectors).toHaveBeenCalledWith('/a', 0.3);
+  });
+
+  it('finds landmarks on every second frame by default and reads the colour on every frame', async () => {
+    const h = handlerSetup();
+    await h.ready();
+    for (let i = 0; i < 8; i++) h.frame(i * 33);
+    // The first frame, then the odd frames, between the pose frames.
+    expect(h.detectFace).toHaveBeenCalledTimes(5);
+    expect(h.pushed).toHaveLength(8);
+  });
+
+  it('finds landmarks on every frame when landmarkEvery is 1', async () => {
+    const h = handlerSetup();
+    await h.ready({ landmarkEvery: 1 });
+    for (let i = 0; i < 8; i++) h.frame(i * 33);
+    expect(h.detectFace).toHaveBeenCalledTimes(8);
   });
 
   it('frees and acknowledges a frame that arrives before ready', () => {
