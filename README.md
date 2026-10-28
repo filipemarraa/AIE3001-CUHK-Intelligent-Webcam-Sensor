@@ -152,7 +152,7 @@ One `Estimate` is emitted per second:
 | `breathPhase` | `in`, `out`, `hold` or `null` |
 | `quality` | 0 to 1 |
 | `confidence` | `high`, `medium`, `low` or `invalid` |
-| `reason` | why there is no value: `no_face`, `too_much_motion`, `low_light`, `talking`, `warming_up`, or `null` |
+| `reason` | why there is no value: `no_face`, `too_much_motion`, `low_light`, `talking`, `warming_up`, `weak_pulse` (the pulse is too weak to tell from noise), or `null` |
 | `method` | `pos` or `chrom` |
 
 Capture options under evaluation, all off by default: `capture.skin` (`'boxes'` or `'anatomical'`: polygons of the lower forehead, glabella and cheeks that follow the head), `capture.minFaceConfidence`, `capture.landmarkEvery`, `capture.robustPixels` and `capture.lockExposure`. Each becomes the default only after it wins an A/B against a reference device.

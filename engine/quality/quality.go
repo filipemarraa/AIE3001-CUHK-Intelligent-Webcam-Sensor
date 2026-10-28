@@ -15,6 +15,10 @@ const (
 	mediumQuality   = 0.6
 )
 
+// Below minSNRdB the spectral peak is as likely noise as pulse: with no pulse in the colour, the simulation reported a
+// heart rate 30 bpm off. Provisional until recordings against a reference device set it.
+const minSNRdB = 1.0
+
 type Confidence int
 
 const (
@@ -46,6 +50,7 @@ const (
 	ReasonLowLight
 	ReasonTalking
 	ReasonWarmingUp
+	ReasonWeakPulse
 )
 
 func (r Reason) String() string {
@@ -60,6 +65,8 @@ func (r Reason) String() string {
 		return "talking"
 	case ReasonWarmingUp:
 		return "warming_up"
+	case ReasonWeakPulse:
+		return "weak_pulse"
 	default:
 		return ""
 	}
@@ -120,6 +127,8 @@ func reason(in Inputs) Reason {
 		return ReasonTalking
 	case in.WarmingUp:
 		return ReasonWarmingUp
+	case in.HasHR && in.SNRdB < minSNRdB:
+		return ReasonWeakPulse
 	}
 	return ReasonNone
 }

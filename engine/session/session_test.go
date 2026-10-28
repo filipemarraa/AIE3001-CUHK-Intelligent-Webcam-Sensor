@@ -139,6 +139,7 @@ func TestHeartRateFailureAfterWarmupGivesAReason(t *testing.T) {
 }
 
 func TestBreathingHasItsOwnConfidence(t *testing.T) {
+	noise := rand.New(rand.NewPCG(3, 4))
 	for _, tc := range []struct {
 		name    string
 		spoil   func(x *Sample)
@@ -146,6 +147,9 @@ func TestBreathingHasItsOwnConfidence(t *testing.T) {
 		visible bool
 	}{
 		{"no pulse", func(x *Sample) { x.R, x.G, x.B = 150, 110, 90 }, quality.ReasonWarmingUp, true},
+		{"camera noise, no pulse", func(x *Sample) {
+			x.R, x.G, x.B = lightSkin[0]+0.1*noise.NormFloat64(), lightSkin[1]+0.1*noise.NormFloat64(), lightSkin[2]+0.1*noise.NormFloat64()
+		}, quality.ReasonWeakPulse, true},
 		{"dark room", func(x *Sample) { x.R, x.G, x.B, x.Light = 12, 8, 6, 15 }, quality.ReasonLowLight, true},
 		{"no face", func(x *Sample) { x.Face, x.R, x.G, x.B, x.Light = false, 0, 0, 0, 0 }, quality.ReasonNoFace, false},
 		{"moving", func(x *Sample) { x.Motion = 0.2 }, quality.ReasonMotion, false},

@@ -116,7 +116,11 @@ The three boxes (forehead and two cheek squares) cover little skin and are axis-
 
 More pixels are not more accuracy by themselves, so the regions stay behind `capture.skin`, with the boxes as default, until recordings on the lab page show a lower error against a reference device. The same applies to a lower face detection threshold (`capture.minFaceConfidence`): the detector stops finding faces narrower than about 74 px (around 0.9 m from a laptop camera), 68 px at 0.3, and a lower threshold must not report faces in an empty scene.
 
+## 20. A heart rate needs a pulse above the noise
+
+Below 1 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and inside the low end of a weak pulse on dark skin (-0.6 to 5.3 dB). On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 0%, and dark skin from 100% to 74% coverage with the same error. The value is provisional: recordings against a reference device set the final one.
+
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).
-- Decision pending: minimum SNR (or periodicity) for reporting a heart rate, from the error against a reference device by SNR on recorded sessions.
+- Decision pending: final minimum SNR for reporting a heart rate (1 dB for now, decision 20), from the error against a reference device by SNR on recorded sessions.

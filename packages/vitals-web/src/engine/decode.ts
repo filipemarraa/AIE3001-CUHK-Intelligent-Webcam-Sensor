@@ -3,7 +3,7 @@ import { OUT } from './layout.js';
 
 const PHASES: readonly (BreathPhase | null)[] = [null, 'in', 'out', 'hold'];
 const CONFIDENCES: readonly Confidence[] = ['high', 'medium', 'low', 'invalid'];
-const REASONS: readonly (Reason | null)[] = [null, 'no_face', 'too_much_motion', 'low_light', 'talking', 'warming_up'];
+const REASONS: readonly (Reason | null)[] = [null, 'no_face', 'too_much_motion', 'low_light', 'talking', 'warming_up', 'weak_pulse'];
 
 export interface Decoded {
   estimate: Estimate;

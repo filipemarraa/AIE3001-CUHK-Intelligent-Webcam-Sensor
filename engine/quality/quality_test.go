@@ -20,7 +20,8 @@ func TestAssessReasonPriority(t *testing.T) {
 		{"motion beats low light", func(i *Inputs) { i.MotionP90 = 3; i.LightMean = 10 }, ReasonMotion},
 		{"low light beats talking", func(i *Inputs) { i.LightMean = 10; i.MouthStd = 0.1 }, ReasonLowLight},
 		{"talking beats warming up", func(i *Inputs) { i.MouthStd = 0.1; i.WarmingUp = true }, ReasonTalking},
-		{"warming up", func(i *Inputs) { i.WarmingUp = true }, ReasonWarmingUp},
+		{"warming up beats weak pulse", func(i *Inputs) { i.WarmingUp = true; i.SNRdB = -5 }, ReasonWarmingUp},
+		{"weak pulse", func(i *Inputs) { i.SNRdB = -5 }, ReasonWeakPulse},
 		{"no HR, nothing else", func(i *Inputs) { i.HasHR = false }, ReasonNone},
 	}
 	for _, tt := range tests {
@@ -50,6 +51,7 @@ func TestBreathingBlocked(t *testing.T) {
 		{"no face", func(i *Inputs) { i.FaceFraction = 0.5 }, true},
 		{"moving", func(i *Inputs) { i.MotionP90 = 3 }, true},
 		{"talking in the dark", func(i *Inputs) { i.LightMean = 10; i.MouthStd = 0.1 }, true},
+		{"weak pulse", func(i *Inputs) { i.SNRdB = -5 }, false},
 	}
 	for _, tt := range tests {
 		in := good()
@@ -64,6 +66,28 @@ func TestAssessGoodSignalIsHigh(t *testing.T) {
 	got := Assess(good())
 	if got.Confidence != ConfidenceHigh || got.Reason != ReasonNone || got.Quality < 0.75 {
 		t.Errorf("got %+v", got)
+	}
+}
+
+func TestAssessSNRFloor(t *testing.T) {
+	tests := []struct {
+		snr     float64
+		invalid bool
+	}{
+		{minSNRdB - 0.01, true},
+		{minSNRdB, false},
+		{minSNRdB + 0.5, false},
+	}
+	for _, tt := range tests {
+		in := good()
+		in.SNRdB = tt.snr
+		got := Assess(in)
+		if invalid := got.Confidence == ConfidenceInvalid; invalid != tt.invalid {
+			t.Errorf("SNR %.2f dB: confidence %v, want invalid = %v", tt.snr, got.Confidence, tt.invalid)
+		}
+		if tt.invalid && got.Reason != ReasonWeakPulse {
+			t.Errorf("SNR %.2f dB: reason %v, want %v", tt.snr, got.Reason, ReasonWeakPulse)
+		}
 	}
 }
 
@@ -110,7 +134,7 @@ func TestStringsMatchTypeScript(t *testing.T) {
 			t.Errorf("confidence %q missing in types.ts", c.String())
 		}
 	}
-	for _, r := range []Reason{ReasonNoFace, ReasonMotion, ReasonLowLight, ReasonTalking, ReasonWarmingUp} {
+	for _, r := range []Reason{ReasonNoFace, ReasonMotion, ReasonLowLight, ReasonTalking, ReasonWarmingUp, ReasonWeakPulse} {
 		if !strings.Contains(lines["Reason"], "'"+r.String()+"'") {
 			t.Errorf("reason %q missing in types.ts", r.String())
 		}

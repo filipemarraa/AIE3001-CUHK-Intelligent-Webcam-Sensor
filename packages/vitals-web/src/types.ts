@@ -2,7 +2,7 @@ export type Method = 'pos' | 'chrom';
 
 export type Confidence = 'high' | 'medium' | 'low' | 'invalid';
 
-export type Reason = 'no_face' | 'too_much_motion' | 'low_light' | 'talking' | 'warming_up';
+export type Reason = 'no_face' | 'too_much_motion' | 'low_light' | 'talking' | 'warming_up' | 'weak_pulse';
 
 export type BreathPhase = 'in' | 'out' | 'hold';
 
