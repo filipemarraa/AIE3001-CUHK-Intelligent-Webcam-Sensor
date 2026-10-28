@@ -28,6 +28,18 @@ describe('jsonl', () => {
     });
   });
 
+  it('writes the Monk scale only when the participant gave it', () => {
+    const h = {
+      subject: 'P2',
+      condition: 'low light',
+      options: {},
+      camera: { label: 'cam' },
+      startedAt: '2026-10-28T10:00:00.000Z',
+    };
+    expect(parse(headerLine({ ...h, monk: 7 }))).toMatchObject({ monk: 7 });
+    expect(parse(headerLine(h))).not.toHaveProperty('monk');
+  });
+
   it('writes one sample line per row with its skin colours', () => {
     const rows = [Array.from({ length: 10 }, (_, i) => i), Array.from({ length: 10 }, (_, i) => i + 10)];
     const skins = [

@@ -14,6 +14,8 @@ export interface Header {
   options: CaptureOptions;
   camera: { label: string; width?: number; height?: number; frameRate?: number };
   startedAt: string;
+  // Skin tone on the Monk scale (1 to 10), only when the participant volunteers it.
+  monk?: number;
 }
 
 export function headerLine(h: Header): string {
@@ -27,6 +29,7 @@ export function headerLine(h: Header): string {
     options: h.options,
     camera: h.camera,
     startedAt: h.startedAt,
+    ...(h.monk === undefined ? {} : { monk: h.monk }),
   });
 }
 

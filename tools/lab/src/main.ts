@@ -18,6 +18,7 @@ const video = el('video', HTMLVideoElement);
 const overlay = el('overlay', HTMLCanvasElement);
 const subject = el('subject', HTMLInputElement);
 const condition = el('condition', HTMLSelectElement);
+const monk = el('monk', HTMLSelectElement);
 const skin = el('skin', HTMLSelectElement);
 const threshold = el('threshold', HTMLSelectElement);
 const robust = el('robust', HTMLInputElement);
@@ -155,6 +156,7 @@ async function start(): Promise<void> {
     options,
     camera: cameraOf(video),
     startedAt: new Date().toISOString(),
+    ...(monk.value === '' ? {} : { monk: Number(monk.value) }),
   });
   startedAt = performance.now();
   stopButton.disabled = false;
