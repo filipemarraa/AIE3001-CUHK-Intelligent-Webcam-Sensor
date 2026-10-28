@@ -28,6 +28,18 @@ describe('jsonl', () => {
     });
   });
 
+  it('writes the Monk scale only when the participant gave it', () => {
+    const h = {
+      subject: 'P2',
+      condition: 'low light',
+      options: {},
+      camera: { label: 'cam' },
+      startedAt: '2026-10-28T10:00:00.000Z',
+    };
+    expect(parse(headerLine({ ...h, monk: 7 }))).toMatchObject({ monk: 7 });
+    expect(parse(headerLine(h))).not.toHaveProperty('monk');
+  });
+
   it('writes one sample line per row with its skin colours', () => {
     const rows = [Array.from({ length: 10 }, (_, i) => i), Array.from({ length: 10 }, (_, i) => i + 10)];
     const skins = [
@@ -69,6 +81,24 @@ describe('jsonl', () => {
       droppedFrames: 2,
     });
     expect(parse(referenceLine(12_345, 72))).toEqual({ kind: 'reference', tMs: 12_345, hrBpm: 72, source: 'watch' });
+  });
+
+  it('writes Bluetooth references with the device and the beat intervals when the device sent them', () => {
+    expect(parse(referenceLine(500.5, 64, { source: 'ble', device: 'Polar H10 1234', rrMs: [937.5] }))).toEqual({
+      kind: 'reference',
+      tMs: 500.5,
+      hrBpm: 64,
+      source: 'ble',
+      device: 'Polar H10 1234',
+      rrMs: [937.5],
+    });
+    expect(parse(referenceLine(600, 65, { source: 'ble', device: 'Strap', rrMs: [] }))).toEqual({
+      kind: 'reference',
+      tMs: 600,
+      hrBpm: 65,
+      source: 'ble',
+      device: 'Strap',
+    });
   });
 
   it('reads a heart rate typed from the watch only within 30 to 220 bpm', () => {

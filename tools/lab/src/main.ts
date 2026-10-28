@@ -1,5 +1,11 @@
 import './lab.css';
 import { createVitals, type CaptureOptions, type Estimate, type RoiOverlay, type Vitals } from 'vitals-web';
+import {
+  bluetoothAvailable,
+  connectHeartRateSensor,
+  type HeartRateMeasurement,
+  type HeartRateSensor,
+} from './heartrate.js';
 import { diagnosticsLine, estimateLine, headerLine, parseHeartRate, referenceLine, sampleLines } from './jsonl.js';
 
 function el<T extends HTMLElement>(id: string, type: new () => T): T {
@@ -12,6 +18,7 @@ const video = el('video', HTMLVideoElement);
 const overlay = el('overlay', HTMLCanvasElement);
 const subject = el('subject', HTMLInputElement);
 const condition = el('condition', HTMLSelectElement);
+const monk = el('monk', HTMLSelectElement);
 const skin = el('skin', HTMLSelectElement);
 const threshold = el('threshold', HTMLSelectElement);
 const robust = el('robust', HTMLInputElement);
@@ -22,6 +29,8 @@ const downloadButton = el('download', HTMLButtonElement);
 const status = el('status', HTMLParagraphElement);
 const watch = el('watch', HTMLInputElement);
 const references = el('references', HTMLOListElement);
+const sensorButton = el('sensor', HTMLButtonElement);
+const sensorStatus = el('sensor-status', HTMLParagraphElement);
 
 let vitals: Vitals | null = null;
 let lines: string[] = [];
@@ -30,6 +39,8 @@ let faces = 0;
 let header: string | null = null;
 let readingStartedAt: number | null = null;
 let startedAt = 0;
+let sensor: HeartRateSensor | null = null;
+let sensorReadings = 0;
 
 function clearReading(): void {
   watch.value = '';
@@ -101,6 +112,7 @@ async function start(): Promise<void> {
   header = null;
   clearReading();
   references.replaceChildren();
+  sensorReadings = 0;
   startButton.disabled = true;
   downloadButton.disabled = true;
   const v = createVitals(
@@ -144,6 +156,7 @@ async function start(): Promise<void> {
     options,
     camera: cameraOf(video),
     startedAt: new Date().toISOString(),
+    ...(monk.value === '' ? {} : { monk: Number(monk.value) }),
   });
   startedAt = performance.now();
   stopButton.disabled = false;
@@ -200,6 +213,54 @@ el('reference', HTMLFormElement).addEventListener('submit', (event) => {
   readingStartedAt = null;
 });
 
+// Each notification is timed on arrival with the clock of the samples. The sensor averages over its last beats, so
+// the replay compares against the mean of the readings over the analysis window, not against a single one.
+function onMeasurement(m: HeartRateMeasurement): void {
+  const tMs = performance.now();
+  const name = sensor?.name ?? 'sensor';
+  if (m.contact === false || m.hrBpm === 0) {
+    sensorStatus.textContent = `${name}: no skin contact`;
+    return;
+  }
+  const recording = vitals !== null && header !== null;
+  if (recording) {
+    lines.push(referenceLine(tMs, m.hrBpm, { source: 'ble', device: name, rrMs: m.rrMs }));
+    sensorReadings++;
+  }
+  sensorStatus.textContent = `${name}: ${String(m.hrBpm)} bpm${recording ? `, ${String(sensorReadings)} saved` : ''}`;
+}
+
+function onSensorLost(): void {
+  sensor = null;
+  sensorButton.textContent = 'Connect heart rate sensor';
+  sensorStatus.textContent = 'Sensor disconnected: reconnect it or type the watch reading below.';
+}
+
+async function toggleSensor(): Promise<void> {
+  if (sensor !== null) {
+    sensor.disconnect();
+    onSensorLost();
+    return;
+  }
+  sensorButton.disabled = true;
+  try {
+    sensor = await connectHeartRateSensor(onMeasurement, onSensorLost);
+    sensorButton.textContent = 'Disconnect sensor';
+    sensorStatus.textContent = `${sensor.name}: connected, waiting for a reading`;
+  } catch (e) {
+    sensorStatus.textContent = `No sensor (${e instanceof Error ? e.message : String(e)}): type the watch reading below.`;
+  } finally {
+    sensorButton.disabled = false;
+  }
+}
+
+if (!bluetoothAvailable()) {
+  sensorButton.disabled = true;
+  sensorStatus.textContent = 'Web Bluetooth needs Chrome or Edge on https or localhost: type the watch reading below.';
+}
+sensorButton.addEventListener('click', () => {
+  void toggleSensor();
+});
 startButton.addEventListener('click', () => {
   void start();
 });

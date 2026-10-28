@@ -8,20 +8,18 @@ import (
 	"strings"
 
 	"github.com/filipemarraa/AIE3001-CUHK-Intelligent-Webcam-Sensor/engine/eval"
-	"github.com/filipemarraa/AIE3001-CUHK-Intelligent-Webcam-Sensor/engine/session"
 )
 
-// replayTable compares the skin regions of lab recordings against their reference heart rates.
-func replayTable(paths []string) (string, error) {
+// replayTable compares the skin regions of lab recordings against their reference heart rates: one row per recording
+// and region, then the estimates of all recordings pooled by SNR band.
+func replayTable(paths []string, cfg eval.ReplayConfig) (string, error) {
 	var b strings.Builder
-	b.WriteString("| recording | subject | condition | face | skin | references | covered | HR MAE | HR P95 | MAE high/medium | mean SNR dB | 1st HR s |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|\n")
-	type bin struct {
-		n   int
-		sum float64
-	}
-	bins := map[string][]bin{}
-	var edges [][2]float64
+	fmt.Fprintf(&b, "Reference: mean over the last %g s of each estimate, at least %d readings; estimates of the first %g s "+
+		"(warm-up) are not scored.\n\n", cfg.ReferenceWindowS, cfg.MinReferences, cfg.Session.WarmupS)
+	b.WriteString("| recording | subject | condition | fps | face | skin | references | evaluated | coverage | MAE | RMSE | ±5 bpm | bias | limits of agreement | harmonics | mean SNR dB | 1st HR s |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	pairs := map[string][]eval.Pair{}
+	evaluated := map[string]int{}
 	for _, path := range paths {
 		f, err := os.Open(path)
 		if err != nil {
@@ -32,40 +30,35 @@ func replayTable(paths []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}
-		for _, r := range eval.CompareSkins(rec, session.DefaultConfig()) {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |\n", filepath.Base(path),
-				rec.Subject, rec.Condition, pct(rec.FaceShare()), r.Skin, r.References, pct(ratio(r.Covered, r.References)), num(r.MAE), num(r.P95),
-				num(r.ConfidentMAE), num(r.MeanSNRdB), num(r.FirstHRS))
-			if bins[r.Skin] == nil {
-				bins[r.Skin] = make([]bin, len(r.BySNR))
-			}
-			edges = edges[:0]
-			for i, s := range r.BySNR {
-				edges = append(edges, [2]float64{s.FromDB, s.ToDB})
-				if s.Readings > 0 {
-					bins[r.Skin][i].n += s.Readings
-					bins[r.Skin][i].sum += s.MAE * float64(s.Readings)
-				}
-			}
+		for _, r := range eval.CompareSkins(rec, cfg) {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %d | %d | %s | %s | %s | %s |\n", filepath.Base(path),
+				rec.Subject, rec.Condition, fps(rec.EffectiveFPS()), pct(rec.FaceShare()), r.Skin, r.References, r.Evaluated, pct(r.Coverage()),
+				errorCells(r.All), num(r.MeanSNRdB), num(r.FirstHRS))
+			pairs[r.Skin] = append(pairs[r.Skin], r.Pairs...)
+			evaluated[r.Skin] += r.Evaluated
 		}
 	}
-	b.WriteString("\nHeart-rate error by SNR (readings · MAE), all recordings:\n\n| skin |")
-	for _, e := range edges {
-		fmt.Fprintf(&b, " %s |", snrRange(e[0], e[1]))
-	}
-	b.WriteString("\n|---|" + strings.Repeat("---|", len(edges)) + "\n")
+	b.WriteString("\nHeart-rate error by SNR band, all recordings pooled (share: part of the evaluated estimates):\n\n")
+	b.WriteString("| skin | SNR | estimates | share | MAE | RMSE | ±5 bpm | bias | limits of agreement | harmonics |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, name := range eval.SkinNames {
-		fmt.Fprintf(&b, "| %s |", name)
-		for _, s := range bins[name] {
-			mae := math.NaN()
-			if s.n > 0 {
-				mae = s.sum / float64(s.n)
-			}
-			fmt.Fprintf(&b, " %d · %s |", s.n, num(mae))
+		all := eval.Stats(pairs[name])
+		fmt.Fprintf(&b, "| %s | all | %d | %s | %s |\n", name, all.N, pct(ratio(all.N, evaluated[name])), errorCells(all))
+		for _, band := range eval.Bands(pairs[name], evaluated[name]) {
+			fmt.Fprintf(&b, "| %s | %s | %d | %s | %s |\n", name, snrRange(band.FromDB, band.ToDB), band.N,
+				pct(band.Share), errorCells(band.ErrorStats))
 		}
-		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+// errorCells writes MAE, RMSE, share within ±5 bpm, bias, limits of agreement and harmonic errors.
+func errorCells(s eval.ErrorStats) string {
+	loa := "-"
+	if !math.IsNaN(s.LoALow) {
+		loa = fmt.Sprintf("%.2f to %.2f", s.LoALow, s.LoAHigh)
+	}
+	return fmt.Sprintf("%s | %s | %s | %s | %s | %d", num(s.MAE), num(s.RMSE), pct(s.Within5), num(s.Bias), loa, s.Harmonics)
 }
 
 func snrRange(from, to float64) string {
@@ -83,4 +76,11 @@ func ratio(a, b int) float64 {
 		return math.NaN()
 	}
 	return float64(a) / float64(b)
+}
+
+func fps(v float64) string {
+	if math.IsNaN(v) {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f", v)
 }

@@ -31,3 +31,6 @@ playwright-report/
 
 # Vercel CLI link
 .vercel
+
+# Local agent tool state
+.omc/

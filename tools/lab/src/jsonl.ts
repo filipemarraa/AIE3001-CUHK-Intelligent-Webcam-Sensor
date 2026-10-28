@@ -14,6 +14,8 @@ export interface Header {
   options: CaptureOptions;
   camera: { label: string; width?: number; height?: number; frameRate?: number };
   startedAt: string;
+  // Skin tone on the Monk scale (1 to 10), only when the participant volunteers it.
+  monk?: number;
 }
 
 export function headerLine(h: Header): string {
@@ -27,6 +29,7 @@ export function headerLine(h: Header): string {
     options: h.options,
     camera: h.camera,
     startedAt: h.startedAt,
+    ...(h.monk === undefined ? {} : { monk: h.monk }),
   });
 }
 
@@ -47,8 +50,23 @@ export function diagnosticsLine(d: Diagnostics, tMs: number): string {
   return JSON.stringify({ kind: 'diagnostics', tMs, frameCostMs: d.frameCostMs, droppedFrames: d.droppedFrames });
 }
 
-export function referenceLine(tMs: number, hrBpm: number): string {
-  return JSON.stringify({ kind: 'reference', tMs, hrBpm, source: 'watch' });
+// A reference read from a Bluetooth heart rate sensor; without one, the reference was typed from a watch.
+export interface BluetoothSource {
+  source: 'ble';
+  device: string;
+  rrMs: number[];
+}
+
+export function referenceLine(tMs: number, hrBpm: number, ble?: BluetoothSource): string {
+  if (ble === undefined) return JSON.stringify({ kind: 'reference', tMs, hrBpm, source: 'watch' });
+  return JSON.stringify({
+    kind: 'reference',
+    tMs,
+    hrBpm,
+    source: 'ble',
+    device: ble.device,
+    ...(ble.rrMs.length === 0 ? {} : { rrMs: ble.rrMs }),
+  });
 }
 
 export function parseHeartRate(text: string): number | null {

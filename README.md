@@ -171,7 +171,7 @@ The simulated module follows the same rules as the real one: 10 s of warm-up wit
 
 Recorded sessions keep only the numeric samples and estimates, never frames. Each session is compared with a reference device (finger pulse oximeter, optionally a chest strap) using mean absolute error, Bland-Altman limits of agreement and a bootstrap over participants, reported per skin-tone group and lighting condition.
 
-The lab page records such sessions. It runs the real module with the chosen capture options, draws the skin regions over the video (both the boxes and the anatomical regions), takes the heart rate read from a reference device (timed when typing starts), and downloads a JSON-lines file with only numbers: every sample carries the colour of both skin regions, so one recording compares them on the same frames.
+The lab page records such sessions. It runs the real module with the chosen capture options, draws the skin regions over the video (both the boxes and the anatomical regions), reads the reference heart rate from a Bluetooth chest strap or oximeter (Heart Rate Service, about one reading a second on the same clock as the samples) or, as a fallback, typed from a watch (timed when typing starts), and downloads a JSON-lines file with only numbers: every sample carries the colour of both skin regions, so one recording compares them on the same frames.
 
 ```bash
 npm run build --workspace packages/vitals-web   # after build:wasm and fetch-assets, as for the demo
@@ -180,7 +180,7 @@ npm run serve --workspace tools/lab             # http://127.0.0.1:4301/
 cd engine && go run ./cmd/validate -replay ~/lab-P1-good-light.jsonl,~/lab-P2-low-light.jsonl
 ```
 
-The replay runs the same engine session once per skin region and prints, per recording, the share of samples with a face (near zero for an empty scene), coverage of the reference readings, mean absolute error, 95th percentile, error of the high and medium readings, mean SNR and time to the first heart rate, then the error by SNR band over all recordings.
+The replay runs the same engine session once per skin region and compares each estimate with the mean of the reference over the same 15 s window (`-ref-window`, at least `-min-refs` readings). It prints, per recording, the effective frame rate, the share of samples with a face (near zero for an empty scene), coverage, MAE, RMSE, share within ±5 bpm, Bland-Altman bias and limits of agreement, harmonic errors, mean SNR and time to the first heart rate, then the same errors by SNR band over all recordings. The full procedure (reference device, what to log, sessions) is in [docs/validation-protocol.md](docs/validation-protocol.md).
 
 ## References
 

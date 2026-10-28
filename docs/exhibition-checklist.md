@@ -61,6 +61,8 @@ Note for whoever runs the end-to-end test elsewhere: the Playwright headless she
 
 ## Oximeter protocol (10 sessions)
 
+This is the go/no-go check of the demo screen on the day. The accuracy numbers (MAE, Bland-Altman, error by SNR band, per Monk group and condition) come from lab recordings with a Bluetooth reference: see [validation-protocol.md](validation-protocol.md).
+
 Reference: a finger pulse oximeter on the hand that rests on the lap, not the hand near the face. Participants stay seated and still, as in the exercise.
 
 For each session:
