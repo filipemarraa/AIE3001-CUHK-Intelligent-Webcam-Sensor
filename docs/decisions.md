@@ -126,7 +126,7 @@ The timing part of the quality (a fifth of it) was the spread of the frame inter
 
 ## 22. Skin colour on every frame, landmarks on every second one
 
-Only one frame is in flight to the worker; the camera frames that arrive while it is busy are dropped. When a frame costs more than the 33 ms between camera frames, every second frame is lost and the heart rate is measured at about 15 Hz, which on the simulation doubles to triples the error. The face landmarks are most of that cost, so `capture.landmarkEvery` is now 2 by default: the landmarks are found on every second frame, one frame after the pose, so no frame pays for both, and the skin colour is read on every frame from the last landmarks (never older than 250 ms). Robust pixels and the exposure lock stay off until an A/B. The main thread also no longer copies a frame it is about to drop.
+Only one frame is in flight to the worker; the camera frames that arrive while it is busy are dropped. When a frame costs more than the 33 ms between camera frames, every second frame is lost and the heart rate is measured at about 15 Hz, with half the samples per beat for averaging out the camera noise. The face landmarks are most of that cost, so `capture.landmarkEvery` is now 2 by default: the landmarks are found on every second frame, one frame after the pose, so no frame pays for both, and the skin colour is read on every frame from the last landmarks (never older than 250 ms). Robust pixels and the exposure lock stay off until an A/B. The main thread also no longer copies a frame it is about to drop.
 
 ## Pending
 
