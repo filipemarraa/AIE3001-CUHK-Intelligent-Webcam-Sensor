@@ -439,3 +439,27 @@ func TestResetClears(t *testing.T) {
 	now = pushAll(s, xs)
 	assertHeartRate(t, s.Estimate(now), 72)
 }
+
+func TestHeartRateIsTrackedAndResetForgetsIt(t *testing.T) {
+	xs := synthSamples(72, 6, 15, 30)
+	s := New(DefaultConfig())
+	now := pushAll(s, xs)
+	assertHeartRate(t, s.Estimate(now), 72)
+	if math.Abs(s.hr.prior(now)-72) > 2 {
+		t.Fatalf("tracked %v, want 72", s.hr.prior(now))
+	}
+	s.Reset()
+	if !math.IsNaN(s.hr.prior(now)) {
+		t.Fatal("tracked heart rate survives Reset")
+	}
+}
+
+func TestInvalidEstimateForgetsTheTrackedRate(t *testing.T) {
+	s := New(DefaultConfig())
+	now := pushAll(s, synthSamples(72, 6, 15, 30))
+	assertHeartRate(t, s.Estimate(now), 72)
+	assertInvalid(t, s.Estimate(now+5000), quality.ReasonWarmingUp)
+	if !math.IsNaN(s.hr.prior(now + 5000)) {
+		t.Fatal("tracked heart rate survives an invalid estimate")
+	}
+}

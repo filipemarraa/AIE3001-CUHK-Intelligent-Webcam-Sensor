@@ -30,7 +30,7 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 					bpm: bpm, durationS: 15, fps: 30, jitterMs: 8,
 					dc: tone.dc, pulseAmp: tone.pulseAmp, noise: 0.1, seed: uint64(bpm),
 				})
-				hr, err := EstimateHeartRate(ts, r, g, b, DefaultConfig())
+				hr, err := EstimateHeartRate(ts, r, g, b, math.NaN(), DefaultConfig())
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -45,11 +45,34 @@ func TestEstimateHeartRateOnSyntheticFaces(t *testing.T) {
 	}
 }
 
+// The 1.6 s POS window and the band-pass weaken a 50 bpm pulse against its harmonic, which then has the stronger peak.
+func TestEstimateHeartRateTakesTheFundamentalWhateverThePrior(t *testing.T) {
+	ts, r, g, b := synth(synthConfig{
+		bpm: 50, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, harmonic: 0.9, noise: 0.1, seed: 5,
+	})
+	cfg := DefaultConfig()
+	grid, err := dsp.Resample(ts, [][]float64{r, g, b}, cfg.SampleRateHz, cfg.MaxGapMs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pulse := dsp.Bandpass(dsp.Detrend(POS(grid[0], grid[1], grid[2], 48)), cfg.SampleRateHz, cfg.LowHz, cfg.HighHz)
+	if raw, _ := dsp.DominantFrequency(pulse, cfg.SampleRateHz, cfg.LowHz, cfg.HighHz); math.Abs(raw.FreqHz*60-100) > 2 {
+		t.Fatalf("strongest peak at %.1f bpm; the test expects the harmonic at 100", raw.FreqHz*60)
+	}
+	cases := []struct{ prior, want float64 }{{math.NaN(), 50}, {55, 50}, {96, 50}}
+	for _, c := range cases {
+		hr, err := EstimateHeartRate(ts, r, g, b, c.prior, cfg)
+		if err != nil || math.Abs(hr.BPM-c.want) > 1.5 {
+			t.Errorf("prior %v: got %.1f bpm, err %v, want %v", c.prior, hr.BPM, err, c.want)
+		}
+	}
+}
+
 func TestEstimateHeartRateDoesNotReportRateJustAboveBand(t *testing.T) {
 	ts, r, g, b := synth(synthConfig{
 		bpm: 183, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, noise: 0.1, seed: 3,
 	})
-	hr, err := EstimateHeartRate(ts, r, g, b, DefaultConfig())
+	hr, err := EstimateHeartRate(ts, r, g, b, math.NaN(), DefaultConfig())
 	if !errors.Is(err, dsp.ErrNoPeakInBand) {
 		t.Fatalf("got %.1f bpm, err = %v, want dsp.ErrNoPeakInBand", hr.BPM, err)
 	}
@@ -58,7 +81,7 @@ func TestEstimateHeartRateDoesNotReportRateJustAboveBand(t *testing.T) {
 func TestEstimateHeartRateRejectsNonFiniteSample(t *testing.T) {
 	ts, r, g, b := synth(synthConfig{bpm: 72, durationS: 15, fps: 30, dc: lightSkin, pulseAmp: 0.008, seed: 1})
 	g[150] = math.NaN()
-	if _, err := EstimateHeartRate(ts, r, g, b, DefaultConfig()); !errors.Is(err, dsp.ErrNotFinite) {
+	if _, err := EstimateHeartRate(ts, r, g, b, math.NaN(), DefaultConfig()); !errors.Is(err, dsp.ErrNotFinite) {
 		t.Fatalf("err = %v, want dsp.ErrNotFinite", err)
 	}
 }
@@ -83,7 +106,7 @@ func TestPOSIgnoresLightFlickerThatFoolsGreenChannel(t *testing.T) {
 		t.Fatalf("green channel found %.1f bpm; the test expects it to lock on the 108 bpm flicker", naive.FreqHz*60)
 	}
 
-	hr, err := EstimateHeartRate(ts, r, g, b, cfg)
+	hr, err := EstimateHeartRate(ts, r, g, b, math.NaN(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +119,7 @@ func TestEstimateHeartRateErrors(t *testing.T) {
 	cfg := DefaultConfig()
 
 	ts, r, g, b := synth(synthConfig{bpm: 72, durationS: 5, fps: 30, dc: lightSkin, pulseAmp: 0.008, seed: 1})
-	if _, err := EstimateHeartRate(ts, r, g, b, cfg); !errors.Is(err, ErrTooShort) {
+	if _, err := EstimateHeartRate(ts, r, g, b, math.NaN(), cfg); !errors.Is(err, ErrTooShort) {
 		t.Errorf("5 s window: err = %v, want ErrTooShort", err)
 	}
 
@@ -104,11 +127,11 @@ func TestEstimateHeartRateErrors(t *testing.T) {
 	for i := 200; i < len(ts); i++ {
 		ts[i] += 700
 	}
-	if _, err := EstimateHeartRate(ts, r, g, b, cfg); !errors.Is(err, dsp.ErrGap) {
+	if _, err := EstimateHeartRate(ts, r, g, b, math.NaN(), cfg); !errors.Is(err, dsp.ErrGap) {
 		t.Errorf("700 ms gap: err = %v, want dsp.ErrGap", err)
 	}
 
-	if _, err := EstimateHeartRate(nil, nil, nil, nil, cfg); !errors.Is(err, ErrTooShort) {
+	if _, err := EstimateHeartRate(nil, nil, nil, nil, math.NaN(), cfg); !errors.Is(err, ErrTooShort) {
 		t.Errorf("empty input: err = %v, want ErrTooShort", err)
 	}
 }

@@ -46,6 +46,7 @@ type Session struct {
 	lastMs     float64
 	lastFaceMs float64
 	prevPhase  resp.Phase
+	hr         *tracker
 
 	ts, r, g, b, y, w, stat []float64
 	idx                     []int
@@ -53,7 +54,7 @@ type Session struct {
 
 func New(cfg Config) *Session {
 	capacity := max(2, int(math.Ceil(cfg.BufferS*maxFps)))
-	s := &Session{cfg: cfg, buf: make([]Sample, capacity), idx: make([]int, 0, capacity)}
+	s := &Session{cfg: cfg, buf: make([]Sample, capacity), idx: make([]int, 0, capacity), hr: newTracker()}
 	for _, p := range []*[]float64{&s.ts, &s.r, &s.g, &s.b, &s.y, &s.w, &s.stat} {
 		*p = make([]float64, 0, capacity)
 	}
@@ -66,6 +67,7 @@ func (s *Session) Reset() {
 	s.lastMs = math.Inf(-1)
 	s.lastFaceMs = math.Inf(-1)
 	s.prevPhase = resp.PhaseUnknown
+	s.hr.reset()
 }
 
 // Push drops samples that are out of order or not finite, so the resampler never sees them.
@@ -134,12 +136,13 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 	hrFrom := s.since(ref - s.cfg.HRWindowS*1000)
 	if hrFrom == s.n {
 		s.prevPhase = resp.PhaseUnknown
+		s.hr.reset()
 		e.Reason = quality.ReasonWarmingUp
 		return e
 	}
 
 	in := s.qualityInputs(hrFrom, ref)
-	hr, spanS, hrErr := s.heartRate(hrFrom, ref)
+	hr, spanS, hrErr := s.heartRate(hrFrom, ref, s.hr.prior(ref))
 	// A window that yields no pulse after the warm-up is still settling, and the reason must say so.
 	in.WarmingUp = spanS < s.cfg.WarmupS || hrErr != nil
 	in.HasHR = hrErr == nil
@@ -154,13 +157,15 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 		e.Pulse = hr.Pulse[max(0, len(hr.Pulse)-MaxPulseLen):]
 	}
 	if e.Confidence == quality.ConfidenceInvalid {
+		s.hr.reset()
 		// The shoulders do not need the skin colour: a missing pulse or a dark room leaves breathing to its own test.
 		if breathErr == nil && !quality.BreathingBlocked(in) {
 			e.RRRpm, e.Phase = breath.RPM, breath.Phase
 		}
 		return e
 	}
-	e.HRBpm, e.SNRdB = hr.BPM, hr.SNRdB
+	// The quality keeps the SNR of this window; only the rate is tracked.
+	e.HRBpm, e.SNRdB = s.hr.update(ref, hr.BPM, hr.SNRdB), hr.SNRdB
 	if breathErr == nil {
 		e.RRRpm, e.Phase = breath.RPM, breath.Phase
 	}
@@ -168,7 +173,8 @@ func (s *Session) Estimate(nowMs float64) Estimate {
 }
 
 // heartRate leaves moving frames out, so a burst of motion costs the burst and a fresh warm-up, not a whole window.
-func (s *Session) heartRate(from int, ref float64) (rppg.HeartRate, float64, error) {
+// priorBPM, the tracked rate or NaN, settles which harmonic of the pulse is the pulse.
+func (s *Session) heartRate(from int, ref, priorBPM float64) (rppg.HeartRate, float64, error) {
 	idx := s.run(from, ref, s.cfg.RPPG.MaxGapMs, func(x *Sample) bool { return x.Face && x.speed <= quality.MaxMotionPerS })
 	s.ts, s.r, s.g, s.b = s.ts[:0], s.r[:0], s.g[:0], s.b[:0]
 	for _, i := range idx {
@@ -179,7 +185,7 @@ func (s *Session) heartRate(from int, ref float64) (rppg.HeartRate, float64, err
 		return rppg.HeartRate{}, 0, rppg.ErrTooShort
 	}
 	spanS := (s.ts[len(s.ts)-1] - s.ts[0]) / 1000
-	hr, err := rppg.EstimateHeartRate(s.ts, s.r, s.g, s.b, s.cfg.RPPG)
+	hr, err := rppg.EstimateHeartRate(s.ts, s.r, s.g, s.b, priorBPM, s.cfg.RPPG)
 	return hr, spanS, err
 }
 

@@ -72,11 +72,11 @@ func runSuite(seeds int, only string) []eval.Metrics {
 
 func table(results []eval.Metrics) string {
 	var b strings.Builder
-	b.WriteString("| scenario | HR cov | HR MAE | HR P95 | HR false conf | 1st HR s | RR cov | RR MAE | phase calls | phase agree |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("| scenario | HR cov | HR MAE | HR P95 | HR false conf | HR harmonic | 1st HR s | RR cov | RR MAE | phase calls | phase agree |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, m := range results {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", m.Scenario,
-			pct(m.HRCoverage), num(m.HRMAE), num(m.HRP95), pct(m.HRFalseConfident), num(m.FirstHRS),
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", m.Scenario,
+			pct(m.HRCoverage), num(m.HRMAE), num(m.HRP95), pct(m.HRFalseConfident), pct(m.HRHarmonic), num(m.FirstHRS),
 			pct(m.RRCoverage), num(m.RRMAE), pct(m.PhaseCallRate), pct(m.PhaseAgreement))
 	}
 	return b.String()
@@ -101,7 +101,8 @@ func writeJSON(path string, results []eval.Metrics) error {
 	for _, m := range results {
 		rows = append(rows, map[string]any{
 			"scenario": m.Scenario, "hrCoverage": finite(m.HRCoverage), "hrMae": finite(m.HRMAE),
-			"hrP95": finite(m.HRP95), "hrFalseConfident": finite(m.HRFalseConfident), "firstHrS": finite(m.FirstHRS),
+			"hrP95": finite(m.HRP95), "hrFalseConfident": finite(m.HRFalseConfident),
+			"hrHarmonic": finite(m.HRHarmonic), "firstHrS": finite(m.FirstHRS),
 			"rrCoverage": finite(m.RRCoverage), "rrMae": finite(m.RRMAE),
 			"phaseCallRate": finite(m.PhaseCallRate), "phaseAgreement": finite(m.PhaseAgreement),
 		})
