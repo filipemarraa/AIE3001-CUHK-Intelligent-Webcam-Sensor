@@ -23,8 +23,9 @@ const (
 )
 
 // Below minSNRdB the spectral peak is as likely noise as pulse: with no pulse in the colour, the simulation reported a
-// heart rate 30 bpm off. Provisional until recordings against a reference device set it.
-const minSNRdB = 1.0
+// heart rate 30 bpm off. Real cameras give a lower SNR than the simulation, so the cut stays low: 0 dB until
+// recordings against a reference device calibrate it.
+const minSNRdB = 0.0
 
 type Confidence int
 

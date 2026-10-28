@@ -118,7 +118,7 @@ More pixels are not more accuracy by themselves, so the regions stay behind `cap
 
 ## 20. A heart rate needs a pulse above the noise
 
-Below 1 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and inside the low end of a weak pulse on dark skin (-0.6 to 5.3 dB). On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 0%, and dark skin from 100% to 74% coverage with the same error. The value is provisional: recordings against a reference device set the final one. In the demo, a weak pulse or a breathing rate ends the calibration like a valid heart rate, since waiting does not strengthen the pulse, and the numbers panel keeps the breathing rate while it dashes the heart rate.
+Below 0 dB of SNR the heart rate is invalid with the reason `weak_pulse`, and the breathing stays, since the shoulders do not need the skin colour. Before, a missing pulse still showed a heart rate at low confidence, 30 bpm off on average on the scenario with no pulse. The cut sits above most noise (-6.3 to -0.4 dB, 5th to 95th percentile) and at the low end of a weak pulse on dark skin (-0.6 to 5.3 dB); real cameras give a lower SNR than the simulation, so it is set low rather than at 1 dB, where dark skin lost a quarter of its readings. On the benchmark the scenario with no pulse drops from 100% heart-rate coverage at 30 bpm MAE to 3% at 7 bpm, and dark skin from 100% to 89% coverage with the same error. 0 dB until the oximeter/strap recordings (PR #11 replay) calibrate it. In the demo, a weak pulse or a breathing rate ends the calibration like a valid heart rate, since waiting does not strengthen the pulse, and the numbers panel keeps the breathing rate while it dashes the heart rate.
 
 ## 21. Frame timing is judged by the sample rate, not the jitter
 
@@ -131,4 +131,4 @@ Only one frame is in flight to the worker; the camera frames that arrive while i
 ## Pending
 
 - Decision pending: license for the repository (all authors must agree).
-- Decision pending: final minimum SNR for reporting a heart rate (1 dB for now, decision 20), from the error against a reference device by SNR on recorded sessions.
+- Decision pending: final minimum SNR for reporting a heart rate (0 dB for now, decision 20), from the error against a reference device by SNR on recorded sessions.
