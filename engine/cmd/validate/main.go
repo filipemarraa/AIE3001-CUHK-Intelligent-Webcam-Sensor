@@ -25,10 +25,15 @@ func main() {
 	jsonOut := flag.String("json", "", "also write the per-scenario means as JSON to this file")
 	recordings := flag.String("replay", "", "compare the skin regions of these lab recordings (JSONL, comma-separated) "+
 		"against their reference heart rate, instead of running the simulation")
+	replayCfg := eval.DefaultReplayConfig()
+	flag.Float64Var(&replayCfg.ReferenceWindowS, "ref-window", replayCfg.ReferenceWindowS,
+		"with -replay: seconds of reference readings averaged for each estimate, ending at the estimate")
+	flag.IntVar(&replayCfg.MinReferences, "min-refs", replayCfg.MinReferences,
+		"with -replay: fewest reference readings in that window to score an estimate (1 for a watch typed by hand)")
 	flag.Parse()
 
 	if *recordings != "" {
-		out, err := replayTable(strings.Split(*recordings, ","))
+		out, err := replayTable(strings.Split(*recordings, ","), replayCfg)
 		if err == nil {
 			_, err = io.WriteString(os.Stdout, out)
 		}
