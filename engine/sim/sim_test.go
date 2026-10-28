@@ -205,6 +205,26 @@ func TestHarmonicSetsTheSecondHarmonicOfThePulse(t *testing.T) {
 	}
 }
 
+func TestHarmonicChangesAtHarmonicAtS(t *testing.T) {
+	sc := Base("x")
+	sc.BaseBPM, sc.DriftBPM, sc.RSABPM = 60, 0, 0
+	sc.Noise, sc.JitterMs = 0, 0
+	sc.Harmonic, sc.LaterHarmonic, sc.HarmonicAtS = 1.5, 0.6, 60
+	var ts, g [2][]float64
+	for _, x := range sc.Generate() {
+		half := 0
+		if x.TimeMs >= 60000 {
+			half = 1
+		}
+		ts[half], g[half] = append(ts[half], x.TimeMs/1000), append(g[half], x.G)
+	}
+	for half, want := range []float64{1.5, 0.6} {
+		if ratio := amplitude(ts[half], g[half], 2) / amplitude(ts[half], g[half], 1); math.Abs(ratio-want) > 0.05 {
+			t.Errorf("half %d: second over first harmonic = %.3f, want %v", half, ratio, want)
+		}
+	}
+}
+
 func TestColourDriftIsSlowAndIndependentPerChannel(t *testing.T) {
 	sc := Base("x")
 	sc.DurationS = 600

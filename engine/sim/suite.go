@@ -108,6 +108,14 @@ func Suite() []Scenario {
 	harmonic := atHeartRate(webcam, "strong_harmonic_58bpm", 58)
 	harmonic.Harmonic = 0.85
 
+	// A harmonic that outgrows the pulse must not hold the tracker once the pulse is back on top.
+	harmonic55 := atHeartRate(webcam, "harmonic_1.2_55bpm", 55)
+	harmonic55.Harmonic = 1.2
+	notch50 := atHeartRate(webcam, "harmonic_fades_50bpm", 50)
+	notch50.Harmonic, notch50.LaterHarmonic, notch50.HarmonicAtS = 1.5, 0.6, 30
+	notch60 := notch50
+	notch60.Name, notch60.BaseBPM = "harmonic_fades_60bpm", 60
+
 	drift := webcam
 	drift.Name = "coloured_drift"
 	drift.DriftNoise = 0.004
@@ -118,7 +126,7 @@ func Suite() []Scenario {
 	poor175 := atHeartRate(poor, "low_snr_175bpm", 175)
 
 	return []Scenario{ideal, realFPS, stalls, dark, flicker, motion, subtle, talking, faceLost, breath10, breath15, still,
-		noPulse, hr45, hr50, hr150, hr175, harmonic, drift, poor45, poor175}
+		noPulse, hr45, hr50, hr150, hr175, harmonic, harmonic55, notch50, notch60, drift, poor45, poor175}
 }
 
 // atHeartRate holds the heart rate near bpm, with the small sinus arrhythmia of a seated person.

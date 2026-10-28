@@ -41,8 +41,9 @@ type Scenario struct {
 	FlickerAmp float64
 	Steps      []Step
 
-	// Harmonic is the second harmonic of the pulse waveform relative to the fundamental.
-	Harmonic float64
+	// Harmonic is the second harmonic of the pulse waveform relative to the fundamental; from HarmonicAtS on, when it
+	// is positive, it is LaterHarmonic instead.
+	Harmonic, LaterHarmonic, HarmonicAtS float64
 	// DriftNoise is the standard deviation of a slow AR(1) gain on each colour channel, independent between channels
 	// so POS cannot cancel it; DriftTauS is its time constant.
 	DriftNoise, DriftTauS float64
@@ -180,7 +181,11 @@ func (sc Scenario) stepDrift(d *[3]float64, dt float64, rng *rand.Rand) {
 }
 
 func (sc Scenario) colour(t, cardiac, motionHz float64, drift [3]float64, rng *rand.Rand) (r, g, b float64) {
-	pulse := math.Sin(cardiac) + sc.Harmonic*math.Sin(2*cardiac+0.5)
+	harmonic := sc.Harmonic
+	if sc.HarmonicAtS > 0 && t >= sc.HarmonicAtS {
+		harmonic = sc.LaterHarmonic
+	}
+	pulse := math.Sin(cardiac) + harmonic*math.Sin(2*cardiac+0.5)
 	light := 1 + sc.FlickerAmp*math.Sin(2*math.Pi*sc.FlickerHz*t) + 0.02*math.Sin(2*math.Pi*0.05*t)
 	var c [3]float64
 	for k := range c {
