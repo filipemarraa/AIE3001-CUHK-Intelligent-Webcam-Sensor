@@ -34,3 +34,7 @@ playwright-report/
 
 # Local agent tool state
 .omc/
+
+# Poster source and build files (local only)
+/poster/
+/logo.png
